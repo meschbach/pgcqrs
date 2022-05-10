@@ -11,9 +11,6 @@ import (
 	"strconv"
 )
 
-type Config struct {
-}
-
 type Client struct {
 	BaseURL string
 	wire    *http.Client

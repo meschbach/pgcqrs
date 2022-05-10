@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
+	"fmt"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/codes"
 	"net/http"
@@ -31,7 +31,8 @@ func (c *Client) get(parent context.Context, opName, resource string, decode fun
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:"+opName)
 	defer span.End()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL+resource, nil)
+	url := c.BaseURL + resource
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return err
 	}
@@ -41,6 +42,14 @@ func (c *Client) get(parent context.Context, opName, resource string, decode fun
 		return err
 	}
 	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		span.SetStatus(codes.Error, "unexpected response code")
+		return &BadResponseCode{
+			URL:  url,
+			Code: resp.StatusCode,
+		}
+	}
 
 	d := json.NewDecoder(resp.Body)
 	return decode(d)
@@ -81,7 +90,10 @@ func (c *Client) Submit(parent context.Context, app, stream, kind string, event 
 
 	if resp.StatusCode == 404 {
 		span.SetStatus(codes.Error, "unexpected 404")
-		return nil, errors.New("not found: " + url)
+		return nil, &BadResponseCode{
+			URL:  url,
+			Code: resp.StatusCode,
+		}
 	}
 
 	out := &SubmitReply{}
@@ -94,11 +106,13 @@ func (c *Client) Submit(parent context.Context, app, stream, kind string, event 
 	return out, nil
 }
 
+//TODO: retitle -- only ensures said stream exists
 func (c *Client) NewStream(parent context.Context, app string, stream string) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:new-stream")
 	defer span.End()
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, c.BaseURL+"/v1/app/"+app+"/"+stream, nil)
+	url := c.BaseURL + "/v1/app/" + app + "/" + stream
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
 	if err != nil {
 		return err
 	}
@@ -108,6 +122,13 @@ func (c *Client) NewStream(parent context.Context, app string, stream string) er
 		return err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != 200 {
+		span.SetStatus(codes.Error, "unexpected response code")
+		return &BadResponseCode{
+			URL:  url,
+			Code: resp.StatusCode,
+		}
+	}
 	return nil
 }
 
@@ -125,4 +146,13 @@ func NewClient(url string) *Client {
 			Transport: otelhttp.NewTransport(http.DefaultTransport),
 		},
 	}
+}
+
+type BadResponseCode struct {
+	URL  string
+	Code int
+}
+
+func (b *BadResponseCode) Error() string {
+	return fmt.Sprintf("bad response code %d for %s", b.Code, b.URL)
 }

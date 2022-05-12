@@ -3,7 +3,7 @@ package main
 import (
 	"fmt"
 	"github.com/meschbach/go-junk-bucket/pkg/files"
-	"github.com/meschbach/pgcqrs/internal/junk/telemetry"
+	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal/service"
 	"github.com/spf13/cobra"
 	"os"
@@ -17,7 +17,7 @@ func main() {
 		Short: "starts service",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := service.Config{
-				Telemetry: telemetry.DefaultConfig("pg-cqrs.all"),
+				Telemetry: observability.DefaultConfig("pg-cqrs.all"),
 			}
 			files.ParseJSONFile(primaryStorageFile, &cfg)
 			cmdContext := cmd.Context()

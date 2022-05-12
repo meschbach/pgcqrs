@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v4/pgxpool"
+	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal/junk"
-	"github.com/meschbach/pgcqrs/internal/junk/telemetry"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"io/ioutil"
@@ -126,7 +126,7 @@ func (s *service) serve(ctx context.Context) {
 
 func Serve(ctx context.Context, cfg Config) {
 	fmt.Println("Starting PG-CQRS Service")
-	if err := telemetry.SetupTracing(ctx, cfg.Telemetry); err != nil {
+	if err := observability.SetupTracing(ctx, cfg.Telemetry); err != nil {
 		panic(err)
 	}
 

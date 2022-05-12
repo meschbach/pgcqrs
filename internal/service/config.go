@@ -1,11 +1,11 @@
 package service
 
 import (
+	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal"
-	"github.com/meschbach/pgcqrs/internal/junk/telemetry"
 )
 
 type Config struct {
-	Telemetry telemetry.Config
+	Telemetry observability.Config
 	Storage   internal.Storage `json:"storage"`
 }

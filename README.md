@@ -7,11 +7,11 @@ such for each prototypical application.
 Really simple, honestly.
 * Stores all events into Postgres
 * Separate streams for each application
+* TLS
 
 ## Usage in production
 You probably should not as the following really needs to be implemented:
 * Security: Authentication and Authorization. 
-* TLS: Both for the service && service <-> db.
 * DevXP is not the best.
 
 ### Setup

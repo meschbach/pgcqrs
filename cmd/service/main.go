@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"github.com/meschbach/go-junk-bucket/pkg/files"
 	"github.com/meschbach/go-junk-bucket/pkg/observability"
+	"github.com/meschbach/pgcqrs/internal/junk"
 	"github.com/meschbach/pgcqrs/internal/service"
 	"github.com/spf13/cobra"
 	"os"
@@ -19,7 +20,7 @@ func main() {
 			cfg := service.Config{
 				Telemetry: observability.DefaultConfig("pg-cqrs.all"),
 			}
-			files.ParseJSONFile(primaryStorageFile, &cfg)
+			junk.Must(files.ParseJSONFile(primaryStorageFile, &cfg))
 			cmdContext := cmd.Context()
 			service.Serve(cmdContext, cfg)
 			return nil

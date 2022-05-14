@@ -109,7 +109,7 @@ func (s *service) routes() http.Handler {
 	return root
 }
 
-func (s *service) serve(ctx context.Context) {
+func (s *service) serve(ctx context.Context, config *ListenerConfig) {
 	listenerAddress := "localhost:9000"
 	server := &http.Server{
 		Handler:      s.routes(),
@@ -118,7 +118,12 @@ func (s *service) serve(ctx context.Context) {
 		ReadTimeout:  30 * time.Second,
 	}
 	fmt.Printf("Serving traffic at %s\n", listenerAddress)
-	err := server.ListenAndServe()
+	var err error
+	if config.TLS != nil {
+		err = server.ListenAndServeTLS(*config.TLS.CertificateFile, *config.TLS.KeyFile)
+	} else {
+		err = server.ListenAndServe()
+	}
 	if err != nil {
 		panic(err)
 	}
@@ -139,6 +144,6 @@ func Serve(ctx context.Context, cfg Config) {
 			panic(err)
 		}
 		s.storage = &storage{pg: pool}
-		s.serve(startup)
+		s.serve(startup, cfg.Listener)
 	}()
 }

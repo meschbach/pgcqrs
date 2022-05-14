@@ -20,22 +20,23 @@ func main() {
 
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
-	client := v1.NewClient(url)
-	junk.Must(client.NewStream(ctx, app, stream))
-	reply, err := client.Submit(ctx, app, stream, "general", &Event{First: true})
+	sys := v1.NewSystem(v1.NewHttpTransport(url))
+	stream, err := sys.Stream(ctx, app, stream)
+	junk.Must(err)
+	reply, err := stream.Submit(ctx, "general", &Event{First: true})
 	junk.Must(err)
 
 	var byID Event
-	junk.Must(client.GetEvent(ctx, app, stream, reply.Id, &byID))
+	junk.Must(stream.Get(ctx, reply.ID, &byID))
 	fmt.Printf("Event by ID %#v\n", byID)
 
-	envelopes, err := client.AllEnvelopes(ctx, app, stream)
+	envelopes, err := stream.All(ctx)
 	junk.Must(err)
 
-	fmt.Printf("Events: %d\n", len(envelopes.Envelopes))
-	for _, envelope := range envelopes.Envelopes {
+	fmt.Printf("Events: %d\n", len(envelopes))
+	for _, envelope := range envelopes {
 		var byMeta Event
-		junk.Must(client.GetEvent(ctx, app, stream, envelope.ID, &byMeta))
+		junk.Must(stream.Get(ctx, envelope.ID, &byMeta))
 		fmt.Printf("\t%#v: %#v\n", envelope, byMeta)
 	}
 }

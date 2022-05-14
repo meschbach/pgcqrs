@@ -11,15 +11,9 @@ import (
 	"strconv"
 )
 
-type Client struct {
+type HttpTransportLayer struct {
 	BaseURL string
 	wire    *http.Client
-}
-
-type Envelope struct {
-	ID   int64  `json:"id"`
-	When string `json:"when"`
-	Kind string `json:"kind"`
 }
 
 type AllEnvelopes struct {
@@ -27,7 +21,7 @@ type AllEnvelopes struct {
 }
 
 //TODO: decode -> to resulting entity
-func (c *Client) get(parent context.Context, opName, resource string, decode func(d *json.Decoder) error) error {
+func (c *HttpTransportLayer) get(parent context.Context, opName, resource string, decode func(d *json.Decoder) error) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:"+opName)
 	defer span.End()
 
@@ -55,19 +49,19 @@ func (c *Client) get(parent context.Context, opName, resource string, decode fun
 	return decode(d)
 }
 
-func (c *Client) AllEnvelopes(parent context.Context, app, stream string) (AllEnvelopes, error) {
+func (c *HttpTransportLayer) AllEnvelopes(parent context.Context, app, stream string) ([]Envelope, error) {
 	var reply AllEnvelopes
 	err := c.get(parent, "AllEnvelopes", "/v1/app/"+app+"/"+stream+"/all", func(d *json.Decoder) error {
 		return d.Decode(&reply)
 	})
-	return reply, err
+	return reply.Envelopes, err
 }
 
 type SubmitReply struct {
 	Id int64 `json:"id"`
 }
 
-func (c *Client) Submit(parent context.Context, app, stream, kind string, event interface{}) (*SubmitReply, error) {
+func (c *HttpTransportLayer) Submit(parent context.Context, app, stream, kind string, event interface{}) (*Submitted, error) {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:submit")
 	defer span.End()
 
@@ -101,13 +95,12 @@ func (c *Client) Submit(parent context.Context, app, stream, kind string, event 
 	if err := d.Decode(out); err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "decoding error")
-		return out, err
+		return nil, err
 	}
-	return out, nil
+	return &Submitted{ID: out.Id}, nil
 }
 
-//TODO: retitle -- only ensures said stream exists
-func (c *Client) NewStream(parent context.Context, app string, stream string) error {
+func (c *HttpTransportLayer) EnsureStream(parent context.Context, app string, stream string) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:new-stream")
 	defer span.End()
 
@@ -132,15 +125,15 @@ func (c *Client) NewStream(parent context.Context, app string, stream string) er
 	return nil
 }
 
-func (c *Client) GetEvent(parent context.Context, app string, stream string, id int64, payload interface{}) error {
+func (c *HttpTransportLayer) GetEvent(parent context.Context, app string, stream string, id int64, payload interface{}) error {
 	url := "/v1/app/" + app + "/" + stream + "/payload/" + strconv.FormatInt(id, 10)
 	return c.get(parent, "get-payload", url, func(d *json.Decoder) error {
 		return d.Decode(payload)
 	})
 }
 
-func NewClient(url string) *Client {
-	return &Client{
+func NewHttpTransport(url string) *HttpTransportLayer {
+	return &HttpTransportLayer{
 		BaseURL: url,
 		wire: &http.Client{
 			Transport: otelhttp.NewTransport(http.DefaultTransport),

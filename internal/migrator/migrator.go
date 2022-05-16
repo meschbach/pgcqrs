@@ -11,7 +11,7 @@ import (
 func MigratePrimary(ctx context.Context, config Config) error {
 	dir := "file://" + config.MigrationDir
 	db := "pgx://" + config.Storage.Primary.DatabaseURL
-	fmt.Printf("Migration from %q (%q)\n", dir, db)
+	fmt.Printf("Migration from %q\n", dir)
 
 	migrator, err := migrate.New(dir, db)
 	if err != nil {

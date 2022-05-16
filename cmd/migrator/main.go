@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/go-junk-bucket/pkg/files"
 	"github.com/meschbach/pgcqrs/internal"
 	"github.com/meschbach/pgcqrs/internal/migrator"
@@ -11,7 +12,7 @@ import (
 
 func main() {
 	migrationsDir := "migrations"
-	storageCredentials := "secrets/primary.json"
+	primaryStorageFile := pkg.EnvOrDefault("CFG_PRIMARY", "secrets/primary.json")
 
 	serve := cobra.Command{
 		Use:   "primary",
@@ -21,7 +22,7 @@ func main() {
 				Storage:      internal.Storage{},
 				MigrationDir: migrationsDir + "/primary",
 			}
-			if err := files.ParseJSONFile(storageCredentials, &cfg); err != nil {
+			if err := files.ParseJSONFile(primaryStorageFile, &cfg); err != nil {
 				return err
 			}
 			return migrator.MigratePrimary(cmd.Context(), cfg)

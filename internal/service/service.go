@@ -119,7 +119,7 @@ func (s *service) serve(ctx context.Context, config *ListenerConfig) {
 	}
 	fmt.Printf("Serving traffic at %s\n", listenerAddress)
 	var err error
-	if config.TLS != nil {
+	if config != nil && config.TLS != nil {
 		err = server.ListenAndServeTLS(*config.TLS.CertificateFile, *config.TLS.KeyFile)
 	} else {
 		err = server.ListenAndServe()

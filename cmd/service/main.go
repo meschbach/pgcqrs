@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/go-junk-bucket/pkg/files"
 	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal/junk"
@@ -11,7 +12,7 @@ import (
 )
 
 func main() {
-	primaryStorageFile := "secrets/primary.json"
+	primaryStorageFile := pkg.EnvOrDefault("CFG_PRIMARY", "secrets/primary.json")
 
 	serve := cobra.Command{
 		Use:   "serve",

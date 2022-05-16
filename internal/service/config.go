@@ -13,7 +13,7 @@ type Config struct {
 }
 
 func (c *Config) LoadDefaults() {
-	c.Telemetry = observability.DefaultConfig("pg-cqrs.all")
+	c.Telemetry = observability.DefaultConfig("pgcqrs")
 	if c.Listener == nil {
 		c.Listener = &ListenerConfig{}
 	}

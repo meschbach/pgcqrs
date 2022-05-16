@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"time"
@@ -16,7 +17,7 @@ type Event struct {
 }
 
 func main() {
-	url := "http://localhost:9000"
+	url := pkg.EnvOrDefault("PGCQRS_URL", "http://localhost:9000")
 
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()

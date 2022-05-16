@@ -27,6 +27,10 @@ type Result struct {
 func (s *service) routes() http.Handler {
 	root := mux.NewRouter()
 
+	ops := root.PathPrefix("/ops").Subrouter()
+	ops.PathPrefix("/liveness").HandlerFunc(s.livenessRoute())
+	ops.PathPrefix("/readiness").HandlerFunc(s.readinessRoute())
+
 	v1Router := root.PathPrefix("/v1").Subrouter()
 	v1Router.Use(otelmux.Middleware("pgcqrs.http.v1"))
 	v1Router.PathPrefix("/info").HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

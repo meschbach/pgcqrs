@@ -32,4 +32,5 @@ RUN mkdir -p /app/migrations
 COPY migrations /app/migrations
 RUN ls /app/migrations
 USER appuser:appuser
+WORKDIR /app
 ENTRYPOINT ["/migrator"]

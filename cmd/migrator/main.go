@@ -34,6 +34,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.PersistentFlags().StringVarP(&migrationsDir, "migrations-dir", "m", migrationsDir, "Base directory fo stored migrations")
 	root.AddCommand(&serve)
 
 	if err := root.Execute(); err != nil {

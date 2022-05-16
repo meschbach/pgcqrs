@@ -1,6 +1,7 @@
 package service
 
 import (
+	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal"
 )
@@ -11,8 +12,21 @@ type Config struct {
 	Listener  *ListenerConfig  `json:"listener,omitempty"`
 }
 
+func (c *Config) LoadDefaults() {
+	c.Telemetry = observability.DefaultConfig("pg-cqrs.all")
+	if c.Listener == nil {
+		c.Listener = &ListenerConfig{}
+	}
+	c.Listener.LoadDefaults()
+}
+
 type ListenerConfig struct {
-	TLS *TLSConfig `json:"tls,omitempty"`
+	Address string     `json:"address"`
+	TLS     *TLSConfig `json:"tls,omitempty"`
+}
+
+func (l *ListenerConfig) LoadDefaults() {
+	l.Address = pkg.EnvOrDefault("PGCQRS_LISTENER_ADDRESS", "localhost:9000")
 }
 
 type TLSConfig struct {

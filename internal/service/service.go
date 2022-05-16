@@ -111,6 +111,9 @@ func (s *service) routes() http.Handler {
 
 func (s *service) serve(ctx context.Context, config *ListenerConfig) {
 	listenerAddress := "localhost:9000"
+	if config != nil {
+		listenerAddress = config.Address
+	}
 	server := &http.Server{
 		Handler:      s.routes(),
 		Addr:         listenerAddress,

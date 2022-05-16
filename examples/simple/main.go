@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/meschbach/go-junk-bucket/pkg"
-	"github.com/meschbach/pgcqrs/internal/junk"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"time"
 )
@@ -22,22 +21,18 @@ func main() {
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
 	sys := v1.NewSystem(v1.NewHttpTransport(url))
-	stream, err := sys.Stream(ctx, app, stream)
-	junk.Must(err)
-	reply, err := stream.Submit(ctx, "general", &Event{First: true})
-	junk.Must(err)
+	stream := sys.MustStream(ctx, app, stream)
+	reply := stream.MustSubmit(ctx, "general", &Event{First: true})
 
 	var byID Event
-	junk.Must(stream.Get(ctx, reply.ID, &byID))
-	fmt.Printf("Event by ID %#v\n", byID)
+	stream.MustGet(ctx, reply.ID, &byID)
 
-	envelopes, err := stream.All(ctx)
-	junk.Must(err)
+	envelopes := stream.MustAll(ctx)
 
 	fmt.Printf("Events: %d\n", len(envelopes))
 	for _, envelope := range envelopes {
 		var byMeta Event
-		junk.Must(stream.Get(ctx, envelope.ID, &byMeta))
+		stream.MustGet(ctx, envelope.ID, &byMeta)
 		fmt.Printf("\t%#v: %#v\n", envelope, byMeta)
 	}
 }

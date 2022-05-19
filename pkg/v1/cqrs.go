@@ -2,7 +2,11 @@ package v1
 
 import (
 	"context"
+	"github.com/meschbach/go-junk-bucket/pkg/fx"
 	"github.com/meschbach/pgcqrs/internal/junk"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/exp/slices"
 )
 
 type Transport interface {
@@ -65,6 +69,26 @@ func (s *Stream) Get(ctx context.Context, id int64, payload interface{}) error {
 
 func (s *Stream) MustGet(ctx context.Context, id int64, payload interface{}) {
 	junk.Must(s.Get(ctx, id, payload))
+}
+
+func (s *Stream) ByKinds(ctx context.Context, kinds ...string) ([]Envelope, error) {
+	ctx, span := tracer.Start(ctx, "pgcqrs.ByKinds", trace.WithAttributes(attribute.StringSlice("kinds", kinds)))
+	defer span.End()
+
+	envelopes, err := s.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := fx.Filter[Envelope](envelopes, func(e Envelope) bool {
+		return slices.Contains(kinds, e.Kind)
+	})
+	return out, nil
+}
+
+func (s *Stream) MustByKind(ctx context.Context, kinds ...string) []Envelope {
+	out, err := s.ByKinds(ctx, kinds...)
+	junk.Must(err)
+	return out
 }
 
 func NewSystem(storage Transport) *System {

@@ -75,7 +75,7 @@ func (m *memoryFuncOp) perform(sys *memory) {
 }
 
 func (m *memory) EnsureStream(ctx context.Context, domain string, stream string) error {
-	m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+	return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
 		if _, hasDomain := m.domains[domain]; !hasDomain {
 			m.domains[domain] = &memoryDomain{
 				name:    domain,
@@ -91,7 +91,6 @@ func (m *memory) EnsureStream(ctx context.Context, domain string, stream string)
 			}
 		}
 	}})
-	return nil
 }
 
 func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error) {

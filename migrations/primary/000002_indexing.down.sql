@@ -1,0 +1,1 @@
+DROP INDEX events_stream_kind

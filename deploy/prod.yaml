@@ -1,5 +1,5 @@
 image:
-  tag: "7866e51"
+  tag: "59f0dfc"
 
 volumeMounts:
   - name: config

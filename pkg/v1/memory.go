@@ -145,3 +145,26 @@ func (m *memory) AllEnvelopes(ctx context.Context, domain, stream string) ([]Env
 	}
 	return envelopes, nil
 }
+
+func (m *memory) Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error {
+	envelopes, err := m.AllEnvelopes(ctx, domain, stream)
+	if err != nil {
+		return err
+	}
+
+	out.Matching = nil
+	for _, e := range envelopes {
+		add := false
+		for _, c := range query.KindConstraint {
+			if e.Kind == c.Kind {
+				add = true
+				break
+			}
+		}
+
+		if add {
+			out.Matching = append(out.Matching, e)
+		}
+	}
+	return nil
+}

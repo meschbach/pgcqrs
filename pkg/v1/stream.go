@@ -2,11 +2,9 @@ package v1
 
 import (
 	"context"
-	"github.com/meschbach/go-junk-bucket/pkg/fx"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"golang.org/x/exp/slices"
 )
 
 type Stream struct {
@@ -47,14 +45,16 @@ func (s *Stream) ByKinds(ctx context.Context, kinds ...string) ([]Envelope, erro
 	ctx, span := tracer.Start(ctx, "pgcqrs.ByKinds", trace.WithAttributes(attribute.StringSlice("kinds", kinds)))
 	defer span.End()
 
-	envelopes, err := s.All(ctx)
+	builder := s.Query()
+	for _, kind := range kinds {
+		builder.WithKind(kind)
+	}
+	result, err := builder.Perform(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := fx.Filter[Envelope](envelopes, func(e Envelope) bool {
-		return slices.Contains(kinds, e.Kind)
-	})
-	return out, nil
+
+	return result.Envelopes(), nil
 }
 
 func (s *Stream) MustByKind(ctx context.Context, kinds ...string) []Envelope {

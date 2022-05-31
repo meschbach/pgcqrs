@@ -20,6 +20,38 @@ type AllEnvelopes struct {
 	Envelopes []Envelope `json:"envelopes"`
 }
 
+func (c *HttpTransportLayer) post(parent context.Context, opName, resource string, requestEntity any, responseEntity any) error {
+	ctx, span := tracer.Start(parent, "pg-cqrs.v1:"+opName)
+	defer span.End()
+
+	requestEntityBytes, err := json.Marshal(requestEntity)
+	if err != nil {
+		return err
+	}
+
+	url := c.BaseURL + resource
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, url, bytes.NewReader(requestEntityBytes))
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.wire.Do(req)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode != 200 {
+		span.SetStatus(codes.Error, "unexpected response code")
+		return &BadResponseCode{
+			URL:  url,
+			Code: resp.StatusCode,
+		}
+	}
+
+	return json.NewDecoder(resp.Body).Decode(responseEntity)
+}
+
 //TODO: decode -> to resulting entity
 func (c *HttpTransportLayer) get(parent context.Context, opName, resource string, decode func(d *json.Decoder) error) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:"+opName)
@@ -130,6 +162,11 @@ func (c *HttpTransportLayer) GetEvent(parent context.Context, app string, stream
 	return c.get(parent, "get-payload", url, func(d *json.Decoder) error {
 		return d.Decode(payload)
 	})
+}
+
+func (c *HttpTransportLayer) Query(parent context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error {
+	url := "/v1/app/" + domain + "/" + stream + "/query"
+	return c.post(parent, "query", url, query, out)
 }
 
 func NewHttpTransport(url string) *HttpTransportLayer {

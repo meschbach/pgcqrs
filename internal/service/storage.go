@@ -9,9 +9,12 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/meschbach/pgcqrs/internal"
 	"github.com/meschbach/pgcqrs/internal/junk"
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
+	"strconv"
+	"strings"
 )
 
 type storage struct {
@@ -31,7 +34,7 @@ type pgMeta struct {
 }
 
 type EventLoader = func(interface{}) error
-type OnEvent = func(meta pgMeta) error
+type OnEvent = func(ctx context.Context, meta pgMeta) error
 
 func (s *storage) query(parent context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
 	ctx, span := tracer.Start(parent, sql, trace.WithSpanKind(trace.SpanKindClient))
@@ -60,7 +63,7 @@ func (s *storage) replayMeta(parent context.Context, app, stream string, onEvent
 		if err := results.Scan(&meta.ID, &meta.When, &meta.Kind); err != nil {
 			return err
 		}
-		if err := onEvent(meta); err != nil {
+		if err := onEvent(ctx, meta); err != nil {
 			return err
 		}
 	}
@@ -144,6 +147,50 @@ func (s *storage) ensureStream(parent context.Context, app, stream string) error
 
 	if results.Next() {
 		return errors.New("unexpected PG result")
+	}
+	return nil
+}
+
+func (s *storage) applyQuery(parent context.Context, app, stream string, params v1.WireQuery, event OnEvent) error {
+	ctx, span := tracer.Start(parent, "applyQuery")
+	defer span.End()
+	projection := "SELECT id, when_occurred, kind FROM events"
+	baseConstraints := "WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2)"
+	args := make([]interface{}, 0, 2+len(params.KindConstraint))
+	args = append(args, app)
+	args = append(args, stream)
+
+	holes := make([]string, 0, len(params.KindConstraint))
+	for _, k := range params.KindConstraint {
+		args = append(args, k.Kind)
+		holes = append(holes, "$"+strconv.FormatInt(int64(len(args)), 10))
+	}
+	kindsConstraints := "AND kind IN (" + strings.Join(holes, ",") + ")"
+
+	ordering := "ORDER BY when_occurred ASC"
+
+	query := strings.Join([]string{projection, baseConstraints, kindsConstraints, ordering}, " ")
+	span.SetAttributes(attribute.String("pg.query", query))
+	rows, err := s.pg.Query(ctx, query, args...)
+	if err != nil {
+		span.SetStatus(codes.Error, "query")
+		span.RecordError(err)
+		return err
+	}
+
+	//convert query results to
+	return s.dispatchRowMeta(ctx, rows, event)
+}
+
+func (s *storage) dispatchRowMeta(ctx context.Context, results pgx.Rows, onEvent func(ctx context.Context, meta pgMeta) error) error {
+	for results.Next() {
+		var meta pgMeta
+		if err := results.Scan(&meta.ID, &meta.When, &meta.Kind); err != nil {
+			return err
+		}
+		if err := onEvent(ctx, meta); err != nil {
+			return err
+		}
 	}
 	return nil
 }

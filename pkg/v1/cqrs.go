@@ -5,13 +5,6 @@ import (
 	"github.com/meschbach/pgcqrs/internal/junk"
 )
 
-type Transport interface {
-	EnsureStream(ctx context.Context, domain string, stream string) error
-	Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error)
-	GetEvent(ctx context.Context, domain, stream string, id int64, event interface{}) error
-	AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error)
-}
-
 type System struct {
 	Transport Transport
 }

@@ -2,9 +2,11 @@ package v1
 
 import (
 	"context"
+	"github.com/meschbach/go-junk-bucket/pkg/fx"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
+	"golang.org/x/exp/slices"
 )
 
 type Stream struct {
@@ -61,4 +63,29 @@ func (s *Stream) MustByKind(ctx context.Context, kinds ...string) []Envelope {
 	out, err := s.ByKinds(ctx, kinds...)
 	junk.Must(err)
 	return out
+}
+
+func (s *Stream) EnvelopesFor(ctx context.Context, ids ...int64) ([]Envelope, error) {
+	ctx, span := tracer.Start(ctx, "pgcqrs.EnvelopesFor", trace.WithAttributes(attribute.Int64Slice("envelopes", ids)))
+	defer span.End()
+
+	envelopes, err := s.All(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	out := fx.Filter[Envelope](envelopes, func(e Envelope) bool {
+		return slices.Contains(ids, e.ID)
+	})
+	return out, nil
+}
+
+func (s *Stream) MustEnvelopeFor(ctx context.Context, id int64) *Envelope {
+	found, err := s.EnvelopesFor(ctx, id)
+	junk.Must(err)
+	if len(found) == 1 {
+		return &found[0]
+	} else {
+		return nil
+	}
 }

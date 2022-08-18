@@ -9,7 +9,7 @@ import (
 )
 
 type PutEvent struct {
-	Value string
+	Value string `json:"value"`
 }
 
 func TestFindByKindsWithMultiple(t *testing.T) {

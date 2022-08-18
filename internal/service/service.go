@@ -130,6 +130,7 @@ func (s *service) routes() http.Handler {
 
 		ctx := request.Context()
 		var response v1.WireQueryResult
+		response.Filtered = false
 		err = s.storage.applyQuery(ctx, app, stream, query, func(ctx context.Context, meta pgMeta) error {
 			response.Matching = append(response.Matching, v1.Envelope{
 				ID:   meta.ID,

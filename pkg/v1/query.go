@@ -31,7 +31,7 @@ func (q *QueryBuilder) WithKind(kind string) *KindBuilder {
 func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
 	query := WireQuery{KindConstraint: nil}
 	for _, v := range q.kinds {
-		query.KindConstraint = append(query.KindConstraint, KindConstraint{Kind: v.kind})
+		query.KindConstraint = append(query.KindConstraint, v.toKindConstraint())
 	}
 
 	result, err := q.stream.performQuery(ctx, query)
@@ -39,11 +39,59 @@ func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
 		return nil, err
 	}
 
+	//Ensure results are properly filtered
+	if !result.Filtered {
+		var matching []Envelope
+		for _, e := range result.Matching {
+			matched, err := filter(ctx, nil, query, e)
+			if err != nil {
+				return nil, err
+			}
+			if matched {
+				matching = append(matching, e)
+			}
+		}
+		result.Filtered = true
+		result.Matching = matching
+	}
+
 	return &wireResultInterpreter{results: result}, err
 }
 
 type KindBuilder struct {
 	kind string
+	eq   []equalityPredicate
+}
+
+func (k *KindBuilder) Eq(property string, value string) *KindBuilder {
+	return k.Equals([]string{property}, value)
+}
+
+func (k *KindBuilder) Equals(property []string, value string) *KindBuilder {
+	k.eq = append(k.eq, equalityPredicate{
+		Property: property,
+		Value:    value,
+	})
+	return k
+}
+
+func (k *KindBuilder) toKindConstraint() KindConstraint {
+	var matchers []WireMatcherV1
+	for _, m := range k.eq {
+		matchers = append(matchers, WireMatcherV1{
+			Property: m.Property,
+			Value:    []string{m.Value},
+		})
+	}
+	return KindConstraint{
+		Kind: k.kind,
+		Eq:   matchers,
+	}
+}
+
+type equalityPredicate struct {
+	Property []string `json:"path"`
+	Value    string   `json:"value"`
 }
 
 type QueryResults interface {

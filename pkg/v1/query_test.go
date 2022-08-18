@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-func TestMangoQuery(t *testing.T) {
+func TestKindFilter(t *testing.T) {
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
 		fakeKind := faker.LastName()
 		t1 := h.stream.MustSubmit(ctx, fakeKind, &PutEvent{Value: "test1"})
@@ -25,6 +25,28 @@ func TestMangoQuery(t *testing.T) {
 			assert.Equal(t, t1.ID, results.Envelopes()[0].ID)
 			assert.Equal(t, t2.ID, results.Envelopes()[1].ID)
 			assert.Equal(t, t3.ID, results.Envelopes()[2].ID)
+		}
+	})
+}
+
+func TestKindMatcherFilter(t *testing.T) {
+	MemoryHarness(t, func(ctx context.Context, h Harness) {
+		kind1 := faker.Word()
+		targetCN := faker.FirstName()
+		kind2 := faker.Word()
+
+		h.stream.MustSubmit(ctx, kind1, &PutEvent{Value: faker.Word()})
+		target := h.stream.MustSubmit(ctx, kind1, &PutEvent{Value: targetCN})
+		h.stream.MustSubmit(ctx, kind2, &PutEvent{Value: faker.Word()})
+		h.stream.MustSubmit(ctx, kind2, &PutEvent{Value: targetCN})
+
+		q := h.stream.Query()
+		q.WithKind(kind1).Eq("value", targetCN)
+
+		results, err := q.Perform(ctx)
+		require.NoError(t, err)
+		if assert.Len(t, results.Envelopes(), 1) {
+			assert.Equal(t, target.ID, results.Envelopes()[0].ID)
 		}
 	})
 }

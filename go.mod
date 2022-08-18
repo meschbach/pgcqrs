@@ -4,6 +4,7 @@ go 1.18
 
 require (
 	github.com/bxcodec/faker/v3 v3.8.0
+	github.com/elgs/gojq v0.0.0-20201120033525-b5293fef2759
 	github.com/golang-migrate/migrate/v4 v4.15.2
 	github.com/gorilla/mux v1.8.0
 	github.com/jackc/pgtype v1.11.0
@@ -20,6 +21,7 @@ require (
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
+	github.com/elgs/gosplitargs v0.0.0-20161028071935-a491c5eeb3c8 // indirect
 	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

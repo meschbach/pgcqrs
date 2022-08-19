@@ -5,9 +5,8 @@ import (
 	"encoding/json"
 	"github.com/gorilla/mux"
 	"github.com/meschbach/pgcqrs/internal/junk"
+	"github.com/meschbach/pgcqrs/internal/junk/restful"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
-	"go.opentelemetry.io/otel/codes"
-	"go.opentelemetry.io/otel/trace"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -15,6 +14,7 @@ import (
 
 func (s *service) v1QueryRoute() http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
 		vars := mux.Vars(request)
 		app := vars["app"]
 		stream := vars["stream"]
@@ -24,12 +24,10 @@ func (s *service) v1QueryRoute() http.HandlerFunc {
 
 		var query v1.WireQuery
 		if err := json.Unmarshal(requestEntity, &query); err != nil {
-			writer.WriteHeader(422)
-			writer.Write([]byte(err.Error()))
+			restful.UnprocessableEntity(ctx, writer, err.Error())
 			return
 		}
 
-		ctx := request.Context()
 		var response v1.WireQueryResult
 		response.Filtered = false
 		err = s.storage.applyQuery(ctx, app, stream, query, func(ctx context.Context, meta pgMeta) error {
@@ -41,18 +39,10 @@ func (s *service) v1QueryRoute() http.HandlerFunc {
 			return nil
 		})
 		if err != nil {
-			writer.WriteHeader(500)
-			span := trace.SpanFromContext(ctx)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
+			restful.InternalError(writer, request, err)
 			return
 		}
 
-		writer.WriteHeader(200)
-		if err := json.NewEncoder(writer).Encode(response); err != nil {
-			span := trace.SpanFromContext(ctx)
-			span.RecordError(err)
-			span.SetStatus(codes.Error, err.Error())
-		}
+		restful.Ok(writer, request, response)
 	}
 }

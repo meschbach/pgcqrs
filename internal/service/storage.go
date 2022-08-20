@@ -9,12 +9,11 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/meschbach/pgcqrs/internal"
 	"github.com/meschbach/pgcqrs/internal/junk"
+	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"strconv"
-	"strings"
 )
 
 type storage struct {
@@ -154,24 +153,10 @@ func (s *storage) ensureStream(parent context.Context, app, stream string) error
 func (s *storage) applyQuery(parent context.Context, app, stream string, params v1.WireQuery, event OnEvent) error {
 	ctx, span := tracer.Start(parent, "applyQuery")
 	defer span.End()
-	projection := "SELECT id, when_occurred, kind FROM events"
-	baseConstraints := "WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2)"
-	args := make([]interface{}, 0, 2+len(params.KindConstraint))
-	args = append(args, app)
-	args = append(args, stream)
+	query := storage2.TranslateQuery(app, stream, params)
 
-	holes := make([]string, 0, len(params.KindConstraint))
-	for _, k := range params.KindConstraint {
-		args = append(args, k.Kind)
-		holes = append(holes, "$"+strconv.FormatInt(int64(len(args)), 10))
-	}
-	kindsConstraints := "AND kind IN (" + strings.Join(holes, ",") + ")"
-
-	ordering := "ORDER BY when_occurred ASC"
-
-	query := strings.Join([]string{projection, baseConstraints, kindsConstraints, ordering}, " ")
-	span.SetAttributes(attribute.String("pg.query", query))
-	rows, err := s.pg.Query(ctx, query, args...)
+	span.SetAttributes(attribute.String("pg.query", query.DML))
+	rows, err := s.pg.Query(ctx, query.DML, query.Args...)
 	if err != nil {
 		span.SetStatus(codes.Error, "query")
 		span.RecordError(err)

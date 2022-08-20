@@ -46,4 +46,9 @@ func main() {
 	}
 
 	fmt.Printf("%v\n", result.Envelopes())
+
+	result, err = query.Perform(ctx)
+	if err != nil {
+		panic(err)
+	}
 }

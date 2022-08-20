@@ -154,14 +154,17 @@ func (s *storage) applyQuery(parent context.Context, app, stream string, params 
 	ctx, span := tracer.Start(parent, "applyQuery")
 	defer span.End()
 	query := storage2.TranslateQuery(app, stream, params)
+	span.AddEvent("translated")
 
 	span.SetAttributes(attribute.String("pg.query", query.DML))
+	span.AddEvent("querying")
 	rows, err := s.pg.Query(ctx, query.DML, query.Args...)
 	if err != nil {
 		span.SetStatus(codes.Error, "query")
 		span.RecordError(err)
 		return err
 	}
+	span.AddEvent("has-results")
 
 	//convert query results to
 	return s.dispatchRowMeta(ctx, rows, event)

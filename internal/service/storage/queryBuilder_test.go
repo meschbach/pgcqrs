@@ -36,10 +36,10 @@ func TestKindConstraint(t *testing.T) {
 				},
 			},
 		})
-		assert.Equal(t, "( kind = $1 AND event@>$2 IN ( $3 ) )", out.DML)
+		assert.Equal(t, "( kind = $1 AND event#>>$2 IN ( $3 ) )", out.DML)
 		if assert.Len(t, out.Args, 3) {
 			assert.Equal(t, kind, out.Args[0])
-			assert.Equal(t, "{"+prop+"}", out.Args[1])
+			assert.Equal(t, "{\""+prop+"\"}", out.Args[1])
 			assert.Equal(t, value, out.Args[2])
 		}
 	})

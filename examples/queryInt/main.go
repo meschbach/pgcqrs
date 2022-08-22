@@ -41,7 +41,7 @@ func main() {
 	kind2 := faker.Word()
 	kind3 := faker.Word()
 	stream.MustSubmit(ctx, kind1, &Event{Value: randInt()})
-	stream.MustSubmit(ctx, kind2, &Event{Value: target})
+	expectedResult := stream.MustSubmit(ctx, kind2, &Event{Value: target})
 	stream.MustSubmit(ctx, kind2, &Event{Value: randInt()})
 	stream.MustSubmit(ctx, kind3, &Event{Value: randInt()})
 	stream.MustSubmit(ctx, kind3, &Event{Value: target})
@@ -54,6 +54,11 @@ func main() {
 	}
 
 	fmt.Printf("%v\n", result.Envelopes())
+	if result.Envelopes()[0].ID == expectedResult.ID {
+		fmt.Println("Success")
+	} else {
+		fmt.Println("Failure")
+	}
 
 	result, err = query.Perform(ctx)
 	if err != nil {

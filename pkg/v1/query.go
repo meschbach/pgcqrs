@@ -3,6 +3,8 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 )
 
 func (s *Stream) Query() *QueryBuilder {
@@ -42,6 +44,8 @@ func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
 
 	//Ensure results are properly filtered
 	if !result.Filtered || !result.SubsetMatch {
+		span := trace.SpanFromContext(ctx)
+		span.AddEvent("local-processing", trace.WithAttributes(attribute.Bool("filtered", result.Filtered), attribute.Bool("subset-match", result.SubsetMatch)))
 		var matching []Envelope
 		for _, e := range result.Matching {
 			matched, err := filter(ctx, q.stream, query, e)

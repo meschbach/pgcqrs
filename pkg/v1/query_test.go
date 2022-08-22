@@ -5,6 +5,7 @@ import (
 	"github.com/bxcodec/faker/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"math/rand"
 	"testing"
 	"time"
 )
@@ -29,7 +30,7 @@ func TestKindFilter(t *testing.T) {
 	})
 }
 
-func TestKindMatcherFilter(t *testing.T) {
+func TestKindEqFilter(t *testing.T) {
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
 		kind1 := faker.Word()
 		targetCN := faker.FirstName()
@@ -47,6 +48,36 @@ func TestKindMatcherFilter(t *testing.T) {
 		require.NoError(t, err)
 		if assert.Len(t, results.Envelopes(), 1) {
 			assert.Equal(t, target.ID, results.Envelopes()[0].ID)
+		}
+	})
+}
+
+type MatcherEntity struct {
+	IntValue int `json:"id"`
+}
+
+type MatcherExample struct {
+	ID int `json:"id"`
+}
+
+func TestMatchFilter(t *testing.T) {
+	MemoryHarness(t, func(ctx context.Context, h Harness) {
+		kind1 := faker.Word()
+		kind2 := faker.Word()
+		target := rand.Int()
+
+		h.stream.MustSubmit(ctx, kind1, MatcherEntity{IntValue: rand.Int()})
+		h.stream.MustSubmit(ctx, kind2, MatcherEntity{IntValue: rand.Int()})
+		reply := h.stream.MustSubmit(ctx, kind1, MatcherEntity{IntValue: target})
+		h.stream.MustSubmit(ctx, kind2, MatcherEntity{IntValue: target})
+
+		q := h.stream.Query()
+		q.WithKind(kind1).Match(MatcherExample{ID: target})
+		result, err := q.Perform(ctx)
+		require.NoError(t, err)
+
+		if assert.Len(t, result.Envelopes(), 1) {
+			assert.Equal(t, reply.ID, result.Envelopes()[0].ID)
 		}
 	})
 }

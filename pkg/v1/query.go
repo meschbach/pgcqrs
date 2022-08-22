@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"encoding/json"
 )
 
 func (s *Stream) Query() *QueryBuilder {
@@ -40,10 +41,10 @@ func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
 	}
 
 	//Ensure results are properly filtered
-	if !result.Filtered {
+	if !result.Filtered || !result.SubsetMatch {
 		var matching []Envelope
 		for _, e := range result.Matching {
-			matched, err := filter(ctx, nil, query, e)
+			matched, err := filter(ctx, q.stream, query, e)
 			if err != nil {
 				return nil, err
 			}
@@ -52,6 +53,7 @@ func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
 			}
 		}
 		result.Filtered = true
+		result.SubsetMatch = true
 		result.Matching = matching
 	}
 
@@ -59,8 +61,18 @@ func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
 }
 
 type KindBuilder struct {
-	kind string
-	eq   []equalityPredicate
+	kind  string
+	eq    []equalityPredicate
+	match json.RawMessage
+}
+
+func (k *KindBuilder) Match(example interface{}) *KindBuilder {
+	serialized, err := json.Marshal(example)
+	if err != nil {
+		panic(err)
+	}
+	k.match = serialized
+	return k
 }
 
 func (k *KindBuilder) Eq(property string, value string) *KindBuilder {
@@ -84,8 +96,9 @@ func (k *KindBuilder) toKindConstraint() KindConstraint {
 		})
 	}
 	return KindConstraint{
-		Kind: k.kind,
-		Eq:   matchers,
+		Kind:        k.kind,
+		Eq:          matchers,
+		MatchSubset: k.match,
 	}
 }
 

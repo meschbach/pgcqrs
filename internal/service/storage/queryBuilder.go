@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-//TODO: needs to not be exported in the future
+// TODO: needs to not be exported in the future
 type SQLQuery struct {
 	first bool //TODO: Faster to have a joiner strategy?; user must set to false
 	DML   string
@@ -29,7 +29,7 @@ func (q *SQLQuery) hole(what interface{}) string {
 	return "$" + strconv.FormatInt(int64(index), 10)
 }
 
-//TODO: when other things move into the storage package, this should not be exported any longer
+// TODO: when other things move into the storage package, this should not be exported any longer
 func TranslateQuery(app, stream string, input v1.WireQuery) *SQLQuery {
 	projection := "SELECT id, when_occurred, kind FROM events"
 	streamConstraint := "WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2)"
@@ -63,6 +63,11 @@ func translateKindConstraint(out *SQLQuery, constraint v1.KindConstraint) {
 			out.append(out.hole(v))
 		}
 		out.append(")")
+	}
+
+	if len(constraint.MatchSubset) > 0 {
+		out.append(joiner)
+		out.append("event @> " + out.hole(string(constraint.MatchSubset)))
 	}
 	out.append(")")
 }

@@ -30,6 +30,7 @@ func (s *service) v1QueryRoute() http.HandlerFunc {
 
 		var response v1.WireQueryResult
 		response.Filtered = true
+		response.SubsetMatch = true
 		err = s.storage.applyQuery(ctx, app, stream, query, func(ctx context.Context, meta pgMeta) error {
 			response.Matching = append(response.Matching, v1.Envelope{
 				ID:   meta.ID,

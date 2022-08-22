@@ -1,6 +1,6 @@
 module github.com/meschbach/pgcqrs
 
-go 1.18
+go 1.19
 
 require (
 	github.com/bxcodec/faker/v3 v3.8.0
@@ -24,13 +24,10 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dhui/dktest v0.3.11 // indirect
 	github.com/docker/docker v20.10.17+incompatible // indirect
-	github.com/docker/go-connections v0.4.0 // indirect
-	github.com/docker/go-units v0.4.0 // indirect
 	github.com/elgs/gosplitargs v0.0.0-20161028071935-a491c5eeb3c8 // indirect
 	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/go-logr/logr v1.2.3 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/gogo/protobuf v1.3.2 // indirect
 	github.com/hashicorp/errwrap v1.1.0 // indirect
 	github.com/hashicorp/go-multierror v1.1.1 // indirect
 	github.com/inconshreveable/mousetrap v1.0.1 // indirect
@@ -44,8 +41,6 @@ require (
 	github.com/jackc/puddle v1.2.1 // indirect
 	github.com/lib/pq v1.10.6 // indirect
 	github.com/moby/term v0.0.0-20220808134915-39b0c02b01ae // indirect
-	github.com/opencontainers/go-digest v1.0.0 // indirect
-	github.com/opencontainers/image-spec v1.0.2 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect
 	github.com/sirupsen/logrus v1.9.0 // indirect

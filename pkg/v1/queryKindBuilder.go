@@ -2,7 +2,6 @@ package v1
 
 import "encoding/json"
 
-// todo: move to queryKindBuilder
 type KindBuilder struct {
 	kind  string
 	eq    []equalityPredicate

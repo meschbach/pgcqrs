@@ -52,7 +52,7 @@ func (c *HttpTransportLayer) post(parent context.Context, opName, resource strin
 	return json.NewDecoder(resp.Body).Decode(responseEntity)
 }
 
-//TODO: decode -> to resulting entity
+// TODO: decode -> to resulting entity
 func (c *HttpTransportLayer) get(parent context.Context, opName, resource string, decode func(d *json.Decoder) error) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:"+opName)
 	defer span.End()

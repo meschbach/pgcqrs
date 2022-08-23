@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Query constructs a new query builder for targeting the requested resource
 func (s *Stream) Query() *QueryBuilder {
 	q := &QueryBuilder{stream: s}
 	q.kinds = make(map[string]*KindBuilder)
@@ -19,11 +20,16 @@ func (s *Stream) performQuery(ctx context.Context, query WireQuery) (WireQueryRe
 	return out, err
 }
 
+// QueryBuilder accumulates and prepares a request to obtain the matching events
 type QueryBuilder struct {
+	//stream is the target stream to make th request on
 	stream *Stream
-	kinds  map[string]*KindBuilder
+	//kinds maps the text name of the kind and the constraints for the matching events
+	kinds map[string]*KindBuilder
 }
 
+// WithKind matches all events with kind with optionally additional constraint for matching.  All constraints are
+// `and` operations.  There is no `or` predicates.
 func (q *QueryBuilder) WithKind(kind string) *KindBuilder {
 	if _, has := q.kinds[kind]; !has {
 		q.kinds[kind] = &KindBuilder{kind: kind}
@@ -31,6 +37,7 @@ func (q *QueryBuilder) WithKind(kind string) *KindBuilder {
 	return q.kinds[kind]
 }
 
+// Perform executes the query against the remote PGCQRS system retrieving just envelope information
 func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
 	query := WireQuery{KindConstraint: nil}
 	for _, v := range q.kinds {
@@ -111,7 +118,10 @@ type equalityPredicate struct {
 	Value    string   `json:"value"`
 }
 
+// QueryResults is a result set with just a set of envelopes.  Really should be titled EnvelopeResults in future API
+// revisions but is not since this was the first crack at building the system.
 type QueryResults interface {
+	//Envelopes returns an array of all envelopes which matched all entities
 	Envelopes() []Envelope
 }
 

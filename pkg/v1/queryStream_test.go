@@ -2,23 +2,11 @@ package v1
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/bxcodec/faker/v3"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"testing"
 )
-
-func EntityFunc[T any](apply func(ctx context.Context, e Envelope, entity T)) OnStreamQueryResult {
-	return func(ctx context.Context, e Envelope, rawJSON json.RawMessage) error {
-		var t T
-		if err := json.Unmarshal(rawJSON, &t); err != nil {
-			return err
-		}
-		apply(ctx, e, t)
-		return nil
-	}
-}
 
 func TestQueryStream(t *testing.T) {
 	MemoryHarness(t, func(ctx context.Context, h Harness) {

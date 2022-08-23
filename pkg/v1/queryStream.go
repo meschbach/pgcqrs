@@ -57,3 +57,14 @@ func (s *Stream) performBatchQuery(ctx context.Context, query WireQuery) (WireBa
 	err := s.system.Transport.QueryBatch(ctx, s.domain, s.stream, query, &out)
 	return out, err
 }
+
+func EntityFunc[T any](apply func(ctx context.Context, e Envelope, entity T)) OnStreamQueryResult {
+	return func(ctx context.Context, e Envelope, rawJSON json.RawMessage) error {
+		var t T
+		if err := json.Unmarshal(rawJSON, &t); err != nil {
+			return err
+		}
+		apply(ctx, e, t)
+		return nil
+	}
+}

@@ -163,6 +163,7 @@ func (m *memory) Query(ctx context.Context, domain, stream string, query WireQue
 	}
 
 	out.Filtered = true
+	out.SubsetMatch = true
 	out.Matching = nil
 	filterLoader := &memoryFilterLoader{
 		m:      m,

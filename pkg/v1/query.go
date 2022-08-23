@@ -75,6 +75,7 @@ type KindBuilder struct {
 	kind  string
 	eq    []equalityPredicate
 	match json.RawMessage
+	on    OnStreamQueryResult
 }
 
 func (k *KindBuilder) Match(example interface{}) *KindBuilder {
@@ -83,6 +84,12 @@ func (k *KindBuilder) Match(example interface{}) *KindBuilder {
 		panic(err)
 	}
 	k.match = serialized
+	return k
+}
+
+// On registers handler to be invoked when streaming results.  If invoked multiple times the last invocation will be called.
+func (k *KindBuilder) On(handler OnStreamQueryResult) *KindBuilder {
+	k.on = handler
 	return k
 }
 
@@ -110,6 +117,12 @@ func (k *KindBuilder) toKindConstraint() KindConstraint {
 		Kind:        k.kind,
 		Eq:          matchers,
 		MatchSubset: k.match,
+	}
+}
+
+func (k *KindBuilder) postProcessing(p *postProcessingHandlers) {
+	if k.on != nil {
+		p.register(k.kind, k.on)
 	}
 }
 

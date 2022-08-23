@@ -11,6 +11,7 @@ import (
 type PutEvent struct {
 	Value string `json:"value"`
 }
+type putEventQuery = PutEvent
 
 func TestFindByKindsWithMultiple(t *testing.T) {
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)

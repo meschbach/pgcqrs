@@ -11,6 +11,7 @@ type Transport interface {
 	GetEvent(ctx context.Context, domain, stream string, id int64, event interface{}) error
 	AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error)
 	Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error
+	QueryBatch(ctx context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error
 }
 
 type WireQuery struct {

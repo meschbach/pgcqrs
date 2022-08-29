@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"github.com/jackc/pgtype"
@@ -33,7 +34,7 @@ type pgMeta struct {
 }
 
 type EventLoader = func(interface{}) error
-type OnEvent = func(ctx context.Context, meta pgMeta) error
+type OnEvent = func(ctx context.Context, meta pgMeta, event json.RawMessage) error
 
 func (s *storage) query(parent context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
 	ctx, span := tracer.Start(parent, sql, trace.WithSpanKind(trace.SpanKindClient))
@@ -62,7 +63,7 @@ func (s *storage) replayMeta(parent context.Context, app, stream string, onEvent
 		if err := results.Scan(&meta.ID, &meta.When, &meta.Kind); err != nil {
 			return err
 		}
-		if err := onEvent(ctx, meta); err != nil {
+		if err := onEvent(ctx, meta, nil); err != nil {
 			return err
 		}
 	}
@@ -150,10 +151,10 @@ func (s *storage) ensureStream(parent context.Context, app, stream string) error
 	return nil
 }
 
-func (s *storage) applyQuery(parent context.Context, app, stream string, params v1.WireQuery, event OnEvent) error {
+func (s *storage) applyQuery(parent context.Context, app, stream string, params v1.WireQuery, extractEvent bool, event OnEvent) error {
 	ctx, span := tracer.Start(parent, "applyQuery")
 	defer span.End()
-	query := storage2.TranslateQuery(app, stream, params)
+	query := storage2.TranslateQuery(app, stream, params, extractEvent)
 	span.AddEvent("translated")
 
 	span.SetAttributes(attribute.String("pg.query", query.DML))
@@ -167,18 +168,34 @@ func (s *storage) applyQuery(parent context.Context, app, stream string, params 
 	span.AddEvent("has-results")
 
 	//convert query results to
-	return s.dispatchRowMeta(ctx, rows, event)
+	count, err := s.dispatchRowMeta(ctx, rows, extractEvent, event)
+	if err != nil {
+		span.RecordError(err, trace.WithAttributes(attribute.Int("at-row", count)))
+		span.SetStatus(codes.Error, "dispatching rows")
+		return err
+	}
+	span.AddEvent("dispatched", trace.WithAttributes(attribute.Int("rows", count)))
+	return nil
 }
 
-func (s *storage) dispatchRowMeta(ctx context.Context, results pgx.Rows, onEvent func(ctx context.Context, meta pgMeta) error) error {
+func (s *storage) dispatchRowMeta(ctx context.Context, results pgx.Rows, extractEvent bool, onEvent OnEvent) (int, error) {
+	count := 0
 	for results.Next() {
+		count++
 		var meta pgMeta
-		if err := results.Scan(&meta.ID, &meta.When, &meta.Kind); err != nil {
-			return err
+		var event json.RawMessage = nil
+		if extractEvent {
+			if err := results.Scan(&meta.ID, &meta.When, &meta.Kind, &event); err != nil {
+				return count, err
+			}
+		} else {
+			if err := results.Scan(&meta.ID, &meta.When, &meta.Kind); err != nil {
+				return count, err
+			}
 		}
-		if err := onEvent(ctx, meta); err != nil {
-			return err
+		if err := onEvent(ctx, meta, event); err != nil {
+			return count, err
 		}
 	}
-	return nil
+	return count, nil
 }

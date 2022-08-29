@@ -54,7 +54,7 @@ func TestQueryTranslator(t *testing.T) {
 		app := faker.Word()
 		stream := faker.Word()
 
-		query := TranslateQuery(app, stream, v1.WireQuery{})
+		query := TranslateQuery(app, stream, v1.WireQuery{}, false)
 		assert.Equal(t, "SELECT id, when_occurred, kind FROM events WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2) ORDER BY when_occurred ASC", query.DML)
 		if assert.Len(t, query.Args, 2) {
 			assert.Equal(t, app, query.Args[0])
@@ -73,7 +73,7 @@ func TestQueryTranslator(t *testing.T) {
 				v1.KindConstraint{Kind: kind},
 			},
 		}
-		query := TranslateQuery(app, stream, input)
+		query := TranslateQuery(app, stream, input, false)
 		assert.Equal(t, "SELECT id, when_occurred, kind FROM events WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2) AND ( ( kind = $3 ) ) ORDER BY when_occurred ASC", query.DML)
 		if assert.Len(t, query.Args, 3) {
 			assert.Equal(t, app, query.Args[0])
@@ -96,7 +96,7 @@ func TestQueryTranslator(t *testing.T) {
 				v1.KindConstraint{Kind: kind1},
 			},
 		}
-		query := TranslateQuery(app, stream, input)
+		query := TranslateQuery(app, stream, input, false)
 		assert.Equal(t, "SELECT id, when_occurred, kind FROM events WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2) AND ( ( kind = $3 ) OR ( kind = $4 ) ) ORDER BY when_occurred ASC", query.DML)
 		if assert.Len(t, query.Args, 4) {
 			assert.Equal(t, app, query.Args[0])

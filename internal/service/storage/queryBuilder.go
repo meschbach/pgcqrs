@@ -30,8 +30,13 @@ func (q *SQLQuery) hole(what interface{}) string {
 }
 
 // TODO: when other things move into the storage package, this should not be exported any longer
-func TranslateQuery(app, stream string, input v1.WireQuery) *SQLQuery {
-	projection := "SELECT id, when_occurred, kind FROM events"
+func TranslateQuery(app, stream string, input v1.WireQuery, extractEvent bool) *SQLQuery {
+	var projection string
+	if extractEvent {
+		projection = "SELECT id, when_occurred, kind, event  FROM events"
+	} else {
+		projection = "SELECT id, when_occurred, kind FROM events"
+	}
 	streamConstraint := "WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2)"
 
 	out := &SQLQuery{first: true}

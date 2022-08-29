@@ -61,7 +61,7 @@ func (s *service) routes() http.Handler {
 		stream := vars["stream"]
 
 		out := v1.AllEnvelopes{}
-		err := s.storage.replayMeta(request.Context(), app, stream, func(ctx context.Context, meta pgMeta) error {
+		err := s.storage.replayMeta(request.Context(), app, stream, func(ctx context.Context, meta pgMeta, entity json.RawMessage) error {
 			out.Envelopes = append(out.Envelopes, v1.Envelope{
 				ID:   meta.ID,
 				When: time.Now().Format(time.RFC3339Nano),

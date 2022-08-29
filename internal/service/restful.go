@@ -87,3 +87,29 @@ func (s *service) v1QueryBatchRoute() http.HandlerFunc {
 		restful.Ok(writer, request, response)
 	}
 }
+
+func (s *service) v1QueryAllEnvelopes() http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		//TODO: security
+		vars := mux.Vars(request)
+		app := vars["app"]
+		stream := vars["stream"]
+
+		out := v1.AllEnvelopes{}
+		err := s.storage.replayMeta(request.Context(), app, stream, func(ctx context.Context, meta pgMeta, entity json.RawMessage) error {
+			out.Envelopes = append(out.Envelopes, v1.Envelope{
+				ID:   meta.ID,
+				When: time.Now().Format(time.RFC3339Nano),
+				Kind: meta.Kind,
+			})
+			return nil
+		})
+		junk.Must(err)
+
+		bytes, err := json.Marshal(out)
+		junk.Must(err)
+
+		_, err = writer.Write(bytes)
+		junk.Must(err)
+	}
+}

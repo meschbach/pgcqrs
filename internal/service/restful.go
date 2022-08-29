@@ -104,12 +104,10 @@ func (s *service) v1QueryAllEnvelopes() http.HandlerFunc {
 			})
 			return nil
 		})
-		junk.Must(err)
-
-		bytes, err := json.Marshal(out)
-		junk.Must(err)
-
-		_, err = writer.Write(bytes)
-		junk.Must(err)
+		if err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+		restful.Ok(writer, request, out)
 	}
 }

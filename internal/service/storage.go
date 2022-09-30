@@ -113,12 +113,6 @@ RETURNING id
 	return out, nil
 }
 
-func (s *storage) store(ctx context.Context, app, stream, kind string, body []byte) int64 {
-	id, err := s.unsafeStore(ctx, app, stream, kind, body)
-	junk.Must(err)
-	return id
-}
-
 type noSuchIDError struct {
 	app    string
 	stream string

@@ -125,8 +125,11 @@ func (s *service) v1SubmitByKind() http.HandlerFunc {
 			return
 		}
 
-		//TODO: Should properly chain errors.
-		id := s.storage.store(request.Context(), app, stream, kind, all)
+		id, err := s.storage.unsafeStore(request.Context(), app, stream, kind, all)
+		if err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
 		restful.Ok(writer, request, v1.SubmitReply{Id: id})
 	}
 }

@@ -120,14 +120,13 @@ func (s *service) v1SubmitByKind() http.HandlerFunc {
 		kind := vars["kind"]
 
 		all, err := ioutil.ReadAll(request.Body)
-		junk.Must(err)
+		if err != nil {
+			restful.ClientError(writer, request, err)
+			return
+		}
 
 		//TODO: Should properly chain errors.
 		id := s.storage.store(request.Context(), app, stream, kind, all)
-		bytes, err := json.Marshal(v1.SubmitReply{Id: id})
-		junk.Must(err)
-
-		_, err = writer.Write(bytes)
-		junk.Must(err)
+		restful.Ok(writer, request, v1.SubmitReply{Id: id})
 	}
 }

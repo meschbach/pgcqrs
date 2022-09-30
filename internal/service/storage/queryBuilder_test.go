@@ -14,7 +14,7 @@ func TestKindConstraint(t *testing.T) {
 		kind := faker.Word()
 		out := &SQLQuery{first: true}
 		translateKindConstraint(out, v1.KindConstraint{Kind: kind})
-		assert.Equal(t, "( kind = $1 )", out.DML)
+		assert.Equal(t, "( k.kind = $1 )", out.DML)
 		if assert.Len(t, out.Args, 1) {
 			assert.Equal(t, kind, out.Args[0])
 		}
@@ -36,7 +36,7 @@ func TestKindConstraint(t *testing.T) {
 				},
 			},
 		})
-		assert.Equal(t, "( kind = $1 AND event#>>$2 IN ( $3 ) )", out.DML)
+		assert.Equal(t, "( k.kind = $1 AND event#>>$2 IN ( $3 ) )", out.DML)
 		if assert.Len(t, out.Args, 3) {
 			assert.Equal(t, kind, out.Args[0])
 			assert.Equal(t, "{\""+prop+"\"}", out.Args[1])
@@ -55,7 +55,7 @@ func TestQueryTranslator(t *testing.T) {
 		stream := faker.Word()
 
 		query := TranslateQuery(app, stream, v1.WireQuery{}, false)
-		assert.Equal(t, "SELECT id, when_occurred, kind FROM events WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2) ORDER BY when_occurred ASC", query.DML)
+		assert.Equal(t, "SELECT e.id, when_occurred, k.kind FROM events e INNER JOIN events_kind k ON e.kind_id = k.id INNER JOIN events_stream s ON e.stream_id = s.id WHERE (s.app = $1 AND s.stream = $2) ORDER BY when_occurred ASC", query.DML)
 		if assert.Len(t, query.Args, 2) {
 			assert.Equal(t, app, query.Args[0])
 			assert.Equal(t, stream, query.Args[1])
@@ -74,7 +74,7 @@ func TestQueryTranslator(t *testing.T) {
 			},
 		}
 		query := TranslateQuery(app, stream, input, false)
-		assert.Equal(t, "SELECT id, when_occurred, kind FROM events WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2) AND ( ( kind = $3 ) ) ORDER BY when_occurred ASC", query.DML)
+		assert.Equal(t, "SELECT e.id, when_occurred, k.kind FROM events e INNER JOIN events_kind k ON e.kind_id = k.id INNER JOIN events_stream s ON e.stream_id = s.id WHERE (s.app = $1 AND s.stream = $2) AND ( ( k.kind = $3 ) ) ORDER BY when_occurred ASC", query.DML)
 		if assert.Len(t, query.Args, 3) {
 			assert.Equal(t, app, query.Args[0])
 			assert.Equal(t, stream, query.Args[1])
@@ -97,7 +97,7 @@ func TestQueryTranslator(t *testing.T) {
 			},
 		}
 		query := TranslateQuery(app, stream, input, false)
-		assert.Equal(t, "SELECT id, when_occurred, kind FROM events WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2) AND ( ( kind = $3 ) OR ( kind = $4 ) ) ORDER BY when_occurred ASC", query.DML)
+		assert.Equal(t, "SELECT e.id, when_occurred, k.kind FROM events e INNER JOIN events_kind k ON e.kind_id = k.id INNER JOIN events_stream s ON e.stream_id = s.id WHERE (s.app = $1 AND s.stream = $2) AND ( ( k.kind = $3 ) OR ( k.kind = $4 ) ) ORDER BY when_occurred ASC", query.DML)
 		if assert.Len(t, query.Args, 4) {
 			assert.Equal(t, app, query.Args[0])
 			assert.Equal(t, stream, query.Args[1])

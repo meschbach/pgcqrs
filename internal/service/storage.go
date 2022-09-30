@@ -52,7 +52,7 @@ func (s *storage) replayMeta(parent context.Context, app, stream string, onEvent
 	ctx, span := tracer.Start(parent, "replayMeta")
 	defer span.End()
 
-	results, err := s.query(ctx, "SELECT id, when_occurred, kind FROM events WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2) ORDER BY when_occurred ASC", app, stream)
+	results, err := s.query(ctx, "SELECT e.id, when_occurred, k.kind FROM events e INNER JOIN events_kind k ON e.kind_id = k.id WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2) ORDER BY when_occurred ASC", app, stream)
 	if err != nil {
 		return err
 	}
@@ -76,7 +76,22 @@ func (s *storage) unsafeStore(parent context.Context, app, stream, kind string, 
 			attribute.String("pg-cqrs.stream", stream)))
 	defer span.End()
 
-	results, err := s.query(ctx, "INSERT INTO events(kind, event, stream_id) SELECT $1, $2, s.id as stream_id FROM events_stream s WHERE app = $3 AND stream = $4 RETURNING id", kind, body, app, stream)
+	//kind upsert
+	//TODO: Find a better way to upsert in single round trip
+	r, err := s.query(ctx, `INSERT INTO events_kind(kind) VALUES ($1) ON CONFLICT DO NOTHING`, kind)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, "query error")
+		return -1, err
+	}
+	r.Close()
+
+	sql := `
+INSERT INTO events(kind, kind_id, event, stream_id)
+SELECT $1, (SELECT k.id FROM events_kind k WHERE k.kind = $1), $2, (SELECT s.id FROM events_stream as s WHERE s.app = $3 AND s.stream = $4)
+RETURNING id
+`
+	results, err := s.query(ctx, sql, kind, body, app, stream)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "query error")

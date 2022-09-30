@@ -33,14 +33,15 @@ func (q *SQLQuery) hole(what interface{}) string {
 func TranslateQuery(app, stream string, input v1.WireQuery, extractEvent bool) *SQLQuery {
 	var projection string
 	if extractEvent {
-		projection = "SELECT id, when_occurred, kind, event  FROM events"
+		projection = "SELECT e.id, when_occurred, k.kind, event"
 	} else {
-		projection = "SELECT id, when_occurred, kind FROM events"
+		projection = "SELECT e.id, when_occurred, k.kind"
 	}
-	streamConstraint := "WHERE stream_id = (SELECT id FROM events_stream WHERE app = $1 AND stream = $2)"
+	commonProjection := "FROM events e INNER JOIN events_kind k ON e.kind_id = k.id INNER JOIN events_stream s ON e.stream_id = s.id"
+	streamConstraint := "WHERE (s.app = $1 AND s.stream = $2)"
 
 	out := &SQLQuery{first: true}
-	out.append(projection).append(streamConstraint)
+	out.append(projection).append(commonProjection).append(streamConstraint)
 	out.hole(app)
 	out.hole(stream)
 
@@ -58,7 +59,7 @@ func TranslateQuery(app, stream string, input v1.WireQuery, extractEvent bool) *
 }
 
 func translateKindConstraint(out *SQLQuery, constraint v1.KindConstraint) {
-	out.append("( kind = " + out.hole(constraint.Kind))
+	out.append("( k.kind = " + out.hole(constraint.Kind))
 	joiner := "AND"
 	for _, c := range constraint.Eq {
 		out.append(joiner)

@@ -8,9 +8,7 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal/junk"
-	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
-	"io/ioutil"
 	"net/http"
 	"strconv"
 	"time"
@@ -73,22 +71,7 @@ func (s *service) routes() http.Handler {
 		_, err = writer.Write(bytes)
 		junk.Must(err)
 	})
-	v1Router.PathPrefix("/app/{app}/{stream}/submit/{kind}").Methods(http.MethodPost).HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
-		vars := mux.Vars(request)
-		app := vars["app"]
-		stream := vars["stream"]
-		kind := vars["kind"]
-
-		all, err := ioutil.ReadAll(request.Body)
-		junk.Must(err)
-
-		id := s.storage.store(request.Context(), app, stream, kind, all)
-		bytes, err := json.Marshal(v1.SubmitReply{Id: id})
-		junk.Must(err)
-
-		_, err = writer.Write(bytes)
-		junk.Must(err)
-	})
+	v1Router.PathPrefix("/app/{app}/{stream}/submit/{kind}").Methods(http.MethodPost).HandlerFunc(s.v1SubmitByKind())
 	v1Router.Path("/app/{app}/{stream}/query").Methods(http.MethodPost).HandlerFunc(s.v1QueryRoute())
 	v1Router.Path("/app/{app}/{stream}/query-batch").Methods(http.MethodPost).HandlerFunc(s.v1QueryBatchRoute())
 	return root

@@ -111,3 +111,23 @@ func (s *service) v1QueryAllEnvelopes() http.HandlerFunc {
 		restful.Ok(writer, request, out)
 	}
 }
+
+func (s *service) v1SubmitByKind() http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		vars := mux.Vars(request)
+		app := vars["app"]
+		stream := vars["stream"]
+		kind := vars["kind"]
+
+		all, err := ioutil.ReadAll(request.Body)
+		junk.Must(err)
+
+		//TODO: Should properly chain errors.
+		id := s.storage.store(request.Context(), app, stream, kind, all)
+		bytes, err := json.Marshal(v1.SubmitReply{Id: id})
+		junk.Must(err)
+
+		_, err = writer.Write(bytes)
+		junk.Must(err)
+	}
+}

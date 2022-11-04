@@ -32,11 +32,7 @@ func (s *service) v1QueryRoute() http.HandlerFunc {
 		response.Filtered = true
 		response.SubsetMatch = true
 		err = s.storage.applyQuery(ctx, app, stream, query, false, func(ctx context.Context, meta pgMeta, event json.RawMessage) error {
-			response.Matching = append(response.Matching, v1.Envelope{
-				ID:   meta.ID,
-				When: time.Now().Format(time.RFC3339Nano),
-				Kind: meta.Kind,
-			})
+			response.Matching = append(response.Matching, presentMetaAsEnvelope(meta))
 			return nil
 		})
 		if err != nil {
@@ -67,14 +63,8 @@ func (s *service) v1QueryBatchRoute() http.HandlerFunc {
 		//TODO: modify query to retrieve data payload too
 		var response v1.WireBatchResults
 		err = s.storage.applyQuery(ctx, app, stream, query, true, func(ctx context.Context, meta pgMeta, data json.RawMessage) error {
-			e := v1.Envelope{
-				ID:   meta.ID,
-				When: time.Now().Format(time.RFC3339Nano),
-				Kind: meta.Kind,
-			}
-
 			response.Page = append(response.Page, v1.WireBatchResultPair{
-				Meta: e,
+				Meta: presentMetaAsEnvelope(meta),
 				Data: data,
 			})
 			return nil
@@ -97,11 +87,7 @@ func (s *service) v1QueryAllEnvelopes() http.HandlerFunc {
 
 		out := v1.AllEnvelopes{}
 		err := s.storage.replayMeta(request.Context(), app, stream, func(ctx context.Context, meta pgMeta, entity json.RawMessage) error {
-			out.Envelopes = append(out.Envelopes, v1.Envelope{
-				ID:   meta.ID,
-				When: time.Now().Format(time.RFC3339Nano),
-				Kind: meta.Kind,
-			})
+			out.Envelopes = append(out.Envelopes, presentMetaAsEnvelope(meta))
 			return nil
 		})
 		if err != nil {
@@ -131,5 +117,13 @@ func (s *service) v1SubmitByKind() http.HandlerFunc {
 			return
 		}
 		restful.Ok(writer, request, v1.SubmitReply{Id: id})
+	}
+}
+
+func presentMetaAsEnvelope(meta pgMeta) v1.Envelope {
+	return v1.Envelope{
+		ID:   meta.ID,
+		When: time.Now().Format(time.RFC3339Nano),
+		Kind: meta.Kind,
 	}
 }

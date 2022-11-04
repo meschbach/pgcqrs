@@ -3,4 +3,5 @@
 /secrets
 /.idea
 /dev.sh
+/test.sh
 /publish.sh

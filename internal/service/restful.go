@@ -123,7 +123,7 @@ func (s *service) v1SubmitByKind() http.HandlerFunc {
 func presentMetaAsEnvelope(meta pgMeta) v1.Envelope {
 	return v1.Envelope{
 		ID:   meta.ID,
-		When: time.Now().Format(time.RFC3339Nano),
+		When: meta.When.Time.Format(time.RFC3339Nano),
 		Kind: meta.Kind,
 	}
 }

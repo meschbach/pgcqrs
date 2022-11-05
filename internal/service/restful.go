@@ -52,7 +52,10 @@ func (s *service) v1QueryBatchRoute() http.HandlerFunc {
 		stream := vars["stream"]
 
 		requestEntity, err := ioutil.ReadAll(request.Body)
-		junk.Must(err)
+		if err != nil {
+			restful.ClientError(writer, request, err)
+			return
+		}
 
 		var query v1.WireQuery
 		if err := json.Unmarshal(requestEntity, &query); err != nil {

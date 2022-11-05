@@ -38,10 +38,13 @@ func (q *QueryBuilder) WithKind(kind string) *KindBuilder {
 
 // Perform executes the query against the remote PGCQRS system retrieving just envelope information
 func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
+	handler := newHandlers()
+	features := &requiredFeatures{}
 	query := WireQuery{KindConstraint: nil}
 	for _, v := range q.kinds {
-		query.KindConstraint = append(query.KindConstraint, v.toKindConstraint())
+		query.KindConstraint = append(query.KindConstraint, v.toKindConstraint(handler, features))
 	}
+	handler = nil
 
 	result, err := q.stream.performQuery(ctx, query)
 	if err != nil {

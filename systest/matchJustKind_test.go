@@ -2,7 +2,6 @@ package systest
 
 import (
 	"context"
-	"encoding/json"
 	"github.com/bxcodec/faker/v3"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
@@ -11,15 +10,9 @@ import (
 	"testing"
 )
 
-const ExampleKind1 = "example-kind"
-
-type Example struct {
-	Value string
-}
-
 // Tests the systems capability to use an `or` clause between two matches.
-func TestKindMatch(t *testing.T) {
-	t.Run("With v1 Client matching", func(t *testing.T) {
+func TestMultiKindMatch(t *testing.T) {
+	t.Run("With v1 Client matching multiple kinds", func(t *testing.T) {
 		t.Skip("Need to rethink storage layer for this")
 
 		ctx, done := context.WithCancel(context.Background())
@@ -41,33 +34,39 @@ func TestKindMatch(t *testing.T) {
 		stream, err := system.Stream(ctx, appBase+"-"+faker.Name(), faker.Name())
 		require.NoError(t, err)
 
+		kind1 := faker.Name()
+		kind2 := faker.Name()
+
 		value1 := faker.Name()
-		value1Sub, err := stream.Submit(ctx, ExampleKind1, Example{Value: value1})
+		value1Sub, err := stream.Submit(ctx, kind1, Example{Value: value1})
 		require.NoError(t, err)
 
 		value2 := faker.Name()
-		value2Sub, err := stream.Submit(ctx, ExampleKind1, Example{Value: value2})
+		value2Sub, err := stream.Submit(ctx, kind1, Example{Value: value2})
 		require.NoError(t, err)
 
-		t.Run("Able to match multiple of same kind", func(t *testing.T) {
+		_, err = stream.Submit(ctx, kind2, Example{Value: value1})
+		require.NoError(t, err)
+
+		t.Run("Able to match correct records on just match", func(t *testing.T) {
 			ctx, done := context.WithCancel(context.Background())
 			defer done()
 			q := stream.Query()
-			found1 := false
-			found2 := false
-			q.WithKind(ExampleKind1).Match(Example{Value: value1}).On(func(ctx context.Context, e v1.Envelope, rawJSON json.RawMessage) error {
-				found1 = true
-				assert.Equal(t, value1Sub.ID, e.ID)
-				return nil
-			})
-			q.WithKind(ExampleKind1).Match(Example{Value: value2}).On(func(ctx context.Context, e v1.Envelope, rawJSON json.RawMessage) error {
-				found2 = true
-				assert.Equal(t, value2Sub.ID, e.ID)
-				return nil
-			})
+			var matchedEnvelopes []v1.Envelope
+			var matched []Example
+			q.WithKind(kind1).On(v1.EntityFunc[Example](func(ctx context.Context, e v1.Envelope, entity Example) {
+				matchedEnvelopes = append(matchedEnvelopes, e)
+				matched = append(matched, entity)
+			}))
 			require.NoError(t, q.Stream(ctx))
-			assert.True(t, found1, "Found value1")
-			assert.True(t, found2, "Found value2")
+			if assert.Len(t, matched, 2) {
+				assert.Equal(t, value1, matched[0].Value)
+				assert.Equal(t, value2, matched[1].Value)
+			}
+			if assert.Len(t, matchedEnvelopes, 2) {
+				assert.Equal(t, value1Sub.ID, matchedEnvelopes[0].ID)
+				assert.Equal(t, value2Sub.ID, matchedEnvelopes[1].ID)
+			}
 		})
 	})
 }

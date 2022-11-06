@@ -18,7 +18,7 @@ type Example struct {
 }
 
 // Tests the systems capability to use an `or` clause between two matches.
-func TestKindMatch(t *testing.T) {
+func TestKindMatches(t *testing.T) {
 	t.Run("With v1 Client matching", func(t *testing.T) {
 		t.Skip("Need to rethink storage layer for this")
 

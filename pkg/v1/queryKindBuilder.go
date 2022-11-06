@@ -7,6 +7,7 @@ type KindBuilder struct {
 	eq        []equalityPredicate
 	disjoints []*kindMatchResult
 	current   *kindMatchResult
+	all       OnStreamQueryResult
 }
 
 type kindMatchResult struct {
@@ -29,7 +30,11 @@ func (k *KindBuilder) Match(example interface{}) *KindBuilder {
 
 // On registers handler to be invoked when streaming results.  If invoked multiple times the last invocation will be called.
 func (k *KindBuilder) On(handler OnStreamQueryResult) *KindBuilder {
-	k.current.on = handler
+	if k.current == nil {
+		k.all = handler
+	} else {
+		k.current.on = handler
+	}
 	return k
 }
 
@@ -71,6 +76,10 @@ func (k *KindBuilder) toKindConstraint(p *postProcessingHandlers, requiredFeatur
 			out[i] = DisjointMatch{Match: d.match, ID: id}
 		}
 		constraint.Disjoint = out
+	}
+
+	if k.all != nil {
+		p.register(k.kind, k.all)
 	}
 	return constraint
 }

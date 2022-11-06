@@ -31,7 +31,7 @@ type QueryBuilder struct {
 // `and` operations.  There is no `or` predicates.
 func (q *QueryBuilder) WithKind(kind string) *KindBuilder {
 	if _, has := q.kinds[kind]; !has {
-		q.kinds[kind] = &KindBuilder{kind: kind}
+		q.kinds[kind] = &KindBuilder{kind: kind, current: nil}
 	}
 	return q.kinds[kind]
 }

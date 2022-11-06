@@ -13,8 +13,6 @@ import (
 // Tests the systems capability to use an `or` clause between two matches.
 func TestMultiKindMatch(t *testing.T) {
 	t.Run("With v1 Client matching multiple kinds", func(t *testing.T) {
-		t.Skip("Need to rethink storage layer for this")
-
 		ctx, done := context.WithCancel(context.Background())
 		defer done()
 		url, hasURL := os.LookupEnv("PGCQRS_TEST_URL")
@@ -51,9 +49,9 @@ func TestMultiKindMatch(t *testing.T) {
 		t.Run("Able to match correct records on just match", func(t *testing.T) {
 			ctx, done := context.WithCancel(context.Background())
 			defer done()
-			q := stream.Query()
 			var matchedEnvelopes []v1.Envelope
 			var matched []Example
+			q := stream.Query()
 			q.WithKind(kind1).On(v1.EntityFunc[Example](func(ctx context.Context, e v1.Envelope, entity Example) {
 				matchedEnvelopes = append(matchedEnvelopes, e)
 				matched = append(matched, entity)

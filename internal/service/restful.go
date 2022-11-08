@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"github.com/gorilla/mux"
-	"github.com/meschbach/pgcqrs/internal/junk"
 	"github.com/meschbach/pgcqrs/internal/junk/restful"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"io/ioutil"
@@ -19,19 +18,15 @@ func (s *service) v1QueryRoute() http.HandlerFunc {
 		app := vars["app"]
 		stream := vars["stream"]
 
-		requestEntity, err := ioutil.ReadAll(request.Body)
-		junk.Must(err)
-
 		var query v1.WireQuery
-		if err := json.Unmarshal(requestEntity, &query); err != nil {
-			restful.UnprocessableEntity(ctx, writer, err.Error())
+		if !restful.ParseRequestEntity(writer, request, &query) {
 			return
 		}
 
 		var response v1.WireQueryResult
 		response.Filtered = true
 		response.SubsetMatch = true
-		err = s.storage.applyQuery(ctx, app, stream, query, false, func(ctx context.Context, meta pgMeta, event json.RawMessage) error {
+		err := s.storage.applyQuery(ctx, app, stream, query, false, func(ctx context.Context, meta pgMeta, event json.RawMessage) error {
 			response.Matching = append(response.Matching, presentMetaAsEnvelope(meta))
 			return nil
 		})
@@ -51,21 +46,14 @@ func (s *service) v1QueryBatchRoute() http.HandlerFunc {
 		app := vars["app"]
 		stream := vars["stream"]
 
-		requestEntity, err := ioutil.ReadAll(request.Body)
-		if err != nil {
-			restful.ClientError(writer, request, err)
-			return
-		}
-
 		var query v1.WireQuery
-		if err := json.Unmarshal(requestEntity, &query); err != nil {
-			restful.UnprocessableEntity(ctx, writer, err.Error())
+		if !restful.ParseRequestEntity(writer, request, &query) {
 			return
 		}
 
 		//TODO: modify query to retrieve data payload too
 		var response v1.WireBatchResults
-		err = s.storage.applyQuery(ctx, app, stream, query, true, func(ctx context.Context, meta pgMeta, data json.RawMessage) error {
+		err := s.storage.applyQuery(ctx, app, stream, query, true, func(ctx context.Context, meta pgMeta, data json.RawMessage) error {
 			response.Page = append(response.Page, v1.WireBatchResultPair{
 				Meta: presentMetaAsEnvelope(meta),
 				Data: data,

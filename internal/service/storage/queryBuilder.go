@@ -2,32 +2,8 @@ package storage
 
 import (
 	"github.com/meschbach/pgcqrs/pkg/v1"
-	"strconv"
 	"strings"
 )
-
-// TODO: needs to not be exported in the future
-type SQLQuery struct {
-	first bool //TODO: Faster to have a joiner strategy?; user must set to false
-	DML   string
-	Args  []interface{}
-}
-
-func (q *SQLQuery) append(dml string) *SQLQuery {
-	if q.first {
-		q.DML = dml
-		q.first = false
-	} else {
-		q.DML = q.DML + " " + dml
-	}
-	return q
-}
-
-func (q *SQLQuery) hole(what interface{}) string {
-	q.Args = append(q.Args, what)
-	index := len(q.Args)
-	return "$" + strconv.FormatInt(int64(index), 10)
-}
 
 // TODO: when other things move into the storage package, this should not be exported any longer
 func TranslateQuery(app, stream string, input v1.WireQuery, extractEvent bool) *SQLQuery {

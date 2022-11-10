@@ -8,6 +8,7 @@ import (
 	"github.com/jackc/pgx/v4/pgxpool"
 	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal/junk"
+	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"net/http"
 	"strconv"
@@ -15,7 +16,8 @@ import (
 )
 
 type service struct {
-	storage *storage
+	storage    *storage
+	repository *storage2.Repository
 }
 
 type Result struct {
@@ -74,6 +76,7 @@ func (s *service) routes() http.Handler {
 	v1Router.PathPrefix("/app/{app}/{stream}/submit/{kind}").Methods(http.MethodPost).HandlerFunc(s.v1SubmitByKind())
 	v1Router.Path("/app/{app}/{stream}/query").Methods(http.MethodPost).HandlerFunc(s.v1QueryRoute())
 	v1Router.Path("/app/{app}/{stream}/query-batch").Methods(http.MethodPost).HandlerFunc(s.v1QueryBatchRoute())
+	v1Router.Path("/app/{app}/{stream}/query-batch-r2").Methods(http.MethodPost).HandlerFunc(s.v1QueryBatchR2Route())
 	return root
 }
 
@@ -115,6 +118,7 @@ func Serve(ctx context.Context, cfg Config) {
 			panic(err)
 		}
 		s.storage = &storage{pg: pool}
+		s.repository = storage2.RepositoryWithPool(pool)
 		s.serve(startup, cfg.Listener)
 	}()
 }

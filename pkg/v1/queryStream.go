@@ -105,3 +105,12 @@ func EntityFunc[T any](apply func(ctx context.Context, e Envelope, entity T)) On
 		return nil
 	}
 }
+
+func (s *Stream) QueryBatchR2(ctx context.Context, batch *WireBatchR2Request) (*WireBatchR2Result, error) {
+	out := &WireBatchR2Result{}
+	err := s.system.Transport.QueryBatchR2(ctx, s.domain, s.stream, batch, out)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}

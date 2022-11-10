@@ -174,6 +174,11 @@ func (c *HttpTransportLayer) QueryBatch(parent context.Context, domain, stream s
 	return c.post(parent, "query-batch", url, query, out)
 }
 
+func (c *HttpTransportLayer) QueryBatchR2(parent context.Context, domain, stream string, query *WireBatchR2Request, out *WireBatchR2Result) error {
+	url := "/v1/app/" + domain + "/" + stream + "/query-batch-r2"
+	return c.post(parent, "query-batch-r2", url, query, out)
+}
+
 func NewHttpTransport(url string) *HttpTransportLayer {
 	return &HttpTransportLayer{
 		BaseURL: url,

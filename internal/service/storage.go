@@ -8,8 +8,6 @@ import (
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v4"
 	"github.com/jackc/pgx/v4/pgxpool"
-	"github.com/meschbach/pgcqrs/internal"
-	"github.com/meschbach/pgcqrs/internal/junk"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"go.opentelemetry.io/otel/attribute"
@@ -17,14 +15,10 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// storage is a wrapper over the Postgres document repository
+// Deprecated Move to storage.Repository
 type storage struct {
 	pg *pgxpool.Pool
-}
-
-func (s *storage) start(ctx context.Context, cfg internal.PGStorage) {
-	pool, err := pgxpool.Connect(ctx, "postgres://"+cfg.DatabaseURL)
-	junk.Must(err)
-	s.pg = pool
 }
 
 type pgMeta struct {

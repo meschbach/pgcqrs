@@ -12,6 +12,11 @@ type Transport interface {
 	AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error)
 	Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error
 	QueryBatch(ctx context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error
+	QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error
+}
+
+type StreamTransport interface {
+	QueryBatchR2(ctx context.Context, batch *WireBatchR2Request) (*WireBatchR2Result, error)
 }
 
 type WireQuery struct {

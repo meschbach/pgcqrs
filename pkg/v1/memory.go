@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"github.com/meschbach/pgcqrs/pkg/v1/local"
 	"time"
 )
 
@@ -178,6 +179,45 @@ func (m *memory) Query(ctx context.Context, domain, stream string, query WireQue
 
 		if add {
 			out.Matching = append(out.Matching, e)
+		}
+	}
+	return nil
+}
+
+func (m *memory) QueryBatchR2(parent context.Context, domain, stream string, query *WireBatchR2Request, out *WireBatchR2Result) error {
+	envelopes, err := m.AllEnvelopes(parent, domain, stream)
+	if err != nil {
+		return err
+	}
+
+	for _, e := range envelopes {
+		for _, onKind := range query.OnKinds {
+			if onKind.Kind == e.Kind {
+				if onKind.All != nil {
+					var data json.RawMessage
+					if err := m.GetEvent(parent, domain, stream, e.ID, &data); err != nil {
+						return err
+					}
+					out.Results = append(out.Results, WireBatchR2Dispatch{
+						Envelope: e,
+						Event:    data,
+						Op:       *onKind.All,
+					})
+				}
+				for _, match := range onKind.Match {
+					var data json.RawMessage
+					if err := m.GetEvent(parent, domain, stream, e.ID, &data); err != nil {
+						return err
+					}
+					if local.JSONIsSubset(data, match.Subset) {
+						out.Results = append(out.Results, WireBatchR2Dispatch{
+							Envelope: e,
+							Event:    data,
+							Op:       match.Op,
+						})
+					}
+				}
+			}
 		}
 	}
 	return nil

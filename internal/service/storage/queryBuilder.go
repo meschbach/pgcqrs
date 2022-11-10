@@ -49,7 +49,7 @@ func translateKindConstraint(out *SQLQuery, constraint v1.KindConstraint) {
 
 	if len(constraint.MatchSubset) > 0 {
 		out.append(joiner)
-		out.append("event @> " + out.hole(string(constraint.MatchSubset)))
+		out.append(" " + out.hole(string(constraint.MatchSubset)))
 	}
 	out.append(")")
 }

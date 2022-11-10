@@ -3,9 +3,13 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"github.com/gorilla/mux"
 	"github.com/meschbach/pgcqrs/internal/junk/restful"
+	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/trace"
 	"io/ioutil"
 	"net/http"
 	"time"
@@ -66,6 +70,53 @@ func (s *service) v1QueryBatchRoute() http.HandlerFunc {
 		}
 
 		restful.Ok(writer, request, response)
+	}
+}
+
+func (s *service) v1QueryBatchR2Route() http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
+		vars := mux.Vars(request)
+		app := vars["app"]
+		stream := vars["stream"]
+
+		var query v1.WireBatchR2Request
+		if !restful.ParseRequestEntity(writer, request, &query) {
+			return
+		}
+
+		operations := storage2.TranslateBatchR2(ctx, app, stream, &query)
+		if len(operations) == 0 {
+			restful.ClientError(writer, request, errors.New("no known operations provided"))
+			return
+		}
+		eventsStream, runStream, err := s.repository.Stream(ctx, operations)
+		if err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+
+		var streamError error
+		go func() {
+			_, streamError = runStream(ctx)
+		}()
+
+		out := v1.WireBatchR2Result{}
+		for r := range eventsStream {
+			out.Results = append(out.Results, v1.WireBatchR2Dispatch{
+				Envelope: r.Envelope,
+				Event:    r.Event,
+				Op:       r.Op,
+			})
+		}
+		if streamError != nil {
+			restful.InternalError(writer, request, streamError)
+			return
+		}
+		span := trace.SpanFromContext(ctx)
+		span.AddEvent("events done")
+		span.SetAttributes(attribute.Int("matches", len(out.Results)))
+		restful.Ok(writer, request, out)
 	}
 }
 

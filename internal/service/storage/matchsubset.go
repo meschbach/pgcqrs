@@ -14,7 +14,7 @@ type MatchSubset struct {
 }
 
 func (m *MatchSubset) append(q *SQLQuery) {
-	query := fmt.Sprintf(`SELECT e.id as id, e.when_occurred, %d as op, e.event
+	query := fmt.Sprintf(`SELECT e.id as id, e.when_occurred, %d as op, e.event, ek.kind
 FROM events e
 INNER JOIN events_kind ek on e.kind_id = ek.id
 INNER JOIN events_stream es ON e.stream_id = es.id

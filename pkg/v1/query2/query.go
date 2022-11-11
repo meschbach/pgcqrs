@@ -8,6 +8,7 @@ import (
 type Query struct {
 	stream v1.StreamTransport
 	kinds  []*KindClause
+	ids    []*IDClause
 }
 
 func NewQuery(stream v1.StreamTransport) *Query {
@@ -18,6 +19,12 @@ func (q *Query) OnKind(kind string) *KindClause {
 	c := &KindClause{kind: kind}
 	q.kinds = append(q.kinds, c)
 	return c
+}
+
+func (q *Query) OnID(id int64) *IDClause {
+	i := &IDClause{id: id}
+	q.ids = append(q.ids, i)
+	return i
 }
 
 type handlers struct {
@@ -48,6 +55,11 @@ func (q *Query) StreamBatch(ctx context.Context) error {
 	request := &v1.WireBatchR2Request{}
 	for _, c := range q.kinds {
 		if err := c.prepareRequest(ctx, request, handlers); err != nil {
+			return err
+		}
+	}
+	for _, i := range q.ids {
+		if err := i.prepareRequest(ctx, request, handlers); err != nil {
 			return err
 		}
 	}

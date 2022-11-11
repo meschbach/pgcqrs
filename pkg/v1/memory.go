@@ -219,6 +219,19 @@ func (m *memory) QueryBatchR2(parent context.Context, domain, stream string, que
 				}
 			}
 		}
+		for _, onID := range query.OnID {
+			if e.ID == onID.ID {
+				var data json.RawMessage
+				if err := m.GetEvent(parent, domain, stream, e.ID, &data); err != nil {
+					return err
+				}
+				out.Results = append(out.Results, WireBatchR2Dispatch{
+					Envelope: e,
+					Event:    data,
+					Op:       onID.Op,
+				})
+			}
+		}
 	}
 	return nil
 }

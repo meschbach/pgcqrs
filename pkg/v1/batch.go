@@ -31,8 +31,8 @@ type WireBatchR2KindMatch struct {
 
 // WireBatchR2IDQuery will result in a dispatched being rendered for the given event ID.
 type WireBatchR2IDQuery struct {
-	Op int `json:"op"`
-	ID int `json:"id"`
+	Op int   `json:"op"`
+	ID int64 `json:"id"`
 }
 
 // WireBatchR2Result contains the matched documents and possibly extension information.

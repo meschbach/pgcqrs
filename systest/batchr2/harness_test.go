@@ -49,6 +49,14 @@ func setupHarness() *harness {
 	return out
 }
 
+func setupHarnessT(t *testing.T) (*harness, context.Context, *v1.Stream) {
+	h := setupHarness()
+	t.Cleanup(func() {
+		h.done()
+	})
+	return h, h.ctx, h.stream
+}
+
 type NestedString struct {
 	Value string `json:"value"`
 }

@@ -38,7 +38,7 @@ func (r *Repository) Stream(ctx context.Context, ops []Operation) (<-chan Operat
 		return nil, nil, errors.New("no target operations")
 	}
 	query := &SQLQuery{}
-	query.append("SELECT o.id, o.when_occurred, o.op, o.event FROM (")
+	query.append("SELECT o.id, o.when_occurred, o.op, o.event, o.kind FROM (")
 	first := true
 	for _, op := range ops {
 		if first {
@@ -70,7 +70,7 @@ func (r *Repository) Stream(ctx context.Context, ops []Operation) (<-chan Operat
 		for rows.Next() {
 			var out OperationResult
 			var when pgtype.Timestamptz
-			if err := rows.Scan(&out.Envelope.ID, &when, &out.Op, &out.Event); err != nil {
+			if err := rows.Scan(&out.Envelope.ID, &when, &out.Op, &out.Event, &out.Envelope.Kind); err != nil {
 				span := trace.SpanFromContext(ctx)
 				span.SetStatus(codes.Error, "failed to scan")
 				span.RecordError(err, trace.WithAttributes(attribute.Int("row", index)))

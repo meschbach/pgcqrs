@@ -15,7 +15,7 @@ type Example struct {
 
 // Tests the systems capability to use an `or` clause between two matches.
 func TestMultiKindMatch(t *testing.T) {
-	t.Run("With v1 Client matching multiple kinds", func(t *testing.T) {
+	t.Run("With V1 Client, With two documents of the same kind", func(t *testing.T) {
 		harness := setupHarness()
 		ctx := harness.ctx
 		t.Cleanup(func() {
@@ -37,7 +37,7 @@ func TestMultiKindMatch(t *testing.T) {
 		_, err = stream.Submit(ctx, kind2, Example{Value: value1})
 		require.NoError(t, err)
 
-		t.Run("Able to match correct records on just match", func(t *testing.T) {
+		t.Run("When matching on kind only, Then it matches both", func(t *testing.T) {
 			var matchedEnvelopes []v1.Envelope
 			var matched []Example
 
@@ -55,6 +55,23 @@ func TestMultiKindMatch(t *testing.T) {
 			if assert.Len(t, matchedEnvelopes, 2) {
 				assert.Equal(t, value1Sub.ID, matchedEnvelopes[0].ID)
 				assert.Equal(t, value2Sub.ID, matchedEnvelopes[1].ID)
+			}
+		})
+
+		t.Run("When matching on matching kind and field, then it matches the document", func(t *testing.T) {
+			var matched []matchedPair[Example]
+			q := stream.Query()
+			q.WithKind(kind1).Match(Example{Value: value1}).On(v1.EntityFunc[Example](func(ctx context.Context, e v1.Envelope, entity Example) {
+				matched = append(matched, matchedPair[Example]{
+					envelope: e,
+					entity:   entity,
+				})
+			}))
+			require.NoError(t, q.Stream(ctx))
+
+			if assert.Len(t, matched, 1) {
+				assert.Equal(t, value1Sub.ID, matched[0].envelope.ID)
+				assert.Equal(t, value1, matched[0].entity.Value)
 			}
 		})
 	})

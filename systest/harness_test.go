@@ -46,3 +46,8 @@ func setupHarness() *harness {
 	}
 	return out
 }
+
+type matchedPair[T any] struct {
+	envelope v1.Envelope
+	entity   T
+}

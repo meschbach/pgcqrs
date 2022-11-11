@@ -31,18 +31,11 @@ type WireQueryResult struct {
 	Matching    []Envelope
 }
 
-type DisjointMatch struct {
-	Match json.RawMessage `json:"$eq"`
-	ID    int             `json:"id"`
-}
-
 type KindConstraint struct {
 	Kind string          `json:"kind"`
 	Eq   []WireMatcherV1 `json:"$eq,omitempty"`
 	//MatchSubset is the JSON structure we must match in order to return the target kind
 	MatchSubset json.RawMessage `json:"$sub,omitempty"`
-	//Disjoint are alternate matches of a given document
-	Disjoint []DisjointMatch `json:"$or,omitempty"`
 }
 
 type WireMatcherV1 struct {

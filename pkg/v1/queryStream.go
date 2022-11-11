@@ -3,19 +3,10 @@ package v1
 import (
 	"context"
 	"encoding/json"
-	"errors"
 )
 
 type postProcessingHandlers struct {
 	typedHandlers map[string]OnStreamQueryResult
-	subhandlers   map[string][]OnStreamQueryResult
-}
-
-func newHandlers() *postProcessingHandlers {
-	return &postProcessingHandlers{
-		typedHandlers: make(map[string]OnStreamQueryResult),
-		subhandlers:   make(map[string][]OnStreamQueryResult),
-	}
 }
 
 func (p *postProcessingHandlers) handle(ctx context.Context, result WireBatchResultPair) error {
@@ -29,50 +20,22 @@ func (p *postProcessingHandlers) register(kind string, result OnStreamQueryResul
 	p.typedHandlers[kind] = result
 }
 
-func (p *postProcessingHandlers) registerSubhandler(kind string, result OnStreamQueryResult) int {
-	s := p.subhandlers[kind]
-	id := len(s)
-	s = append(s, result)
-	p.subhandlers[kind] = s
-	return id
-}
-
-type requiredFeatures struct {
-	flagDisjoints bool
-}
-
-func (r *requiredFeatures) disjoints() {
-	r.flagDisjoints = true
-}
-
-func (r *requiredFeatures) verifyBatch(batch *WireBatchResults) error {
-	if r.flagDisjoints {
-		if batch.Features == nil || !batch.Features.Disjoints {
-			return errors.New("disjoints required but not present")
-		}
-	}
-	return nil
-}
-
 func (q *QueryBuilder) Stream(parentContext context.Context) error {
 	ctx, span := tracer.Start(parentContext, "pgcqrs.StreamingQuery")
 	defer span.End()
 
 	//Produce request entity and setup post-processing
-	handlers := newHandlers()
-	features := &requiredFeatures{flagDisjoints: false}
+	handlers := &postProcessingHandlers{typedHandlers: make(map[string]OnStreamQueryResult)}
 	wireQuery := WireQuery{KindConstraint: nil}
 	for _, v := range q.kinds {
-		wireQuery.KindConstraint = append(wireQuery.KindConstraint, v.toKindConstraint(handlers, features))
+		wireQuery.KindConstraint = append(wireQuery.KindConstraint, v.toKindConstraint())
+		v.postProcessing(handlers)
 	}
 	span.AddEvent("wire-entity assembled")
 
 	//Invocation
 	batchResult, err := q.stream.performBatchQuery(ctx, wireQuery)
 	if err != nil {
-		return err
-	}
-	if err := features.verifyBatch(&batchResult); err != nil {
 		return err
 	}
 

@@ -3,14 +3,8 @@ package v1
 import "encoding/json"
 
 type KindBuilder struct {
-	kind      string
-	eq        []equalityPredicate
-	disjoints []*kindMatchResult
-	current   *kindMatchResult
-	all       OnStreamQueryResult
-}
-
-type kindMatchResult struct {
+	kind  string
+	eq    []equalityPredicate
 	match json.RawMessage
 	on    OnStreamQueryResult
 }
@@ -20,30 +14,18 @@ func (k *KindBuilder) Match(example interface{}) *KindBuilder {
 	if err != nil {
 		panic(err)
 	}
-	k.current = &kindMatchResult{
-		match: serialized,
-		on:    nil,
-	}
-	k.disjoints = append(k.disjoints, k.current)
+	k.match = serialized
 	return k
 }
 
 func (k *KindBuilder) MatchDocument(serialized string) *KindBuilder {
-	k.current = &kindMatchResult{
-		match: json.RawMessage(serialized),
-		on:    nil,
-	}
-	k.disjoints = append(k.disjoints, k.current)
+	k.match = json.RawMessage(serialized)
 	return k
 }
 
 // On registers handler to be invoked when streaming results.  If invoked multiple times the last invocation will be called.
 func (k *KindBuilder) On(handler OnStreamQueryResult) *KindBuilder {
-	if k.current == nil {
-		k.all = handler
-	} else {
-		k.current.on = handler
-	}
+	k.on = handler
 	return k
 }
 
@@ -59,7 +41,7 @@ func (k *KindBuilder) Equals(property []string, value string) *KindBuilder {
 	return k
 }
 
-func (k *KindBuilder) toKindConstraint(p *postProcessingHandlers, requiredFeatures *requiredFeatures) KindConstraint {
+func (k *KindBuilder) toKindConstraint() KindConstraint {
 	var matchers []WireMatcherV1
 	for _, m := range k.eq {
 		matchers = append(matchers, WireMatcherV1{
@@ -67,28 +49,15 @@ func (k *KindBuilder) toKindConstraint(p *postProcessingHandlers, requiredFeatur
 			Value:    []string{m.Value},
 		})
 	}
-
-	constraint := KindConstraint{
-		Kind: k.kind,
-		Eq:   matchers,
+	return KindConstraint{
+		Kind:        k.kind,
+		Eq:          matchers,
+		MatchSubset: k.match,
 	}
+}
 
-	disjointCount := len(k.disjoints)
-	if disjointCount == 1 {
-		p.register(k.kind, k.current.on)
-		constraint.MatchSubset = k.current.match
-	} else if disjointCount > 1 {
-		requiredFeatures.disjoints()
-		out := make([]DisjointMatch, disjointCount)
-		for i, d := range k.disjoints {
-			id := p.registerSubhandler(k.kind, d.on)
-			out[i] = DisjointMatch{Match: d.match, ID: id}
-		}
-		constraint.Disjoint = out
+func (k *KindBuilder) postProcessing(p *postProcessingHandlers) {
+	if k.on != nil {
+		p.register(k.kind, k.on)
 	}
-
-	if k.all != nil {
-		p.register(k.kind, k.all)
-	}
-	return constraint
 }

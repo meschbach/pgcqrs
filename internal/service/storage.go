@@ -168,6 +168,7 @@ func (s *storage) applyQuery(parent context.Context, app, stream string, params 
 		span.RecordError(err)
 		return err
 	}
+	defer rows.Close()
 	span.AddEvent("has-results")
 
 	//convert query results to
@@ -199,6 +200,9 @@ func (s *storage) dispatchRowMeta(ctx context.Context, results pgx.Rows, extract
 		if err := onEvent(ctx, meta, event); err != nil {
 			return count, err
 		}
+	}
+	if err := results.Err(); err != nil {
+		return count, err
 	}
 	return count, nil
 }

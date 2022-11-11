@@ -28,6 +28,15 @@ func (k *KindBuilder) Match(example interface{}) *KindBuilder {
 	return k
 }
 
+func (k *KindBuilder) MatchDocument(serialized string) *KindBuilder {
+	k.current = &kindMatchResult{
+		match: json.RawMessage(serialized),
+		on:    nil,
+	}
+	k.disjoints = append(k.disjoints, k.current)
+	return k
+}
+
 // On registers handler to be invoked when streaming results.  If invoked multiple times the last invocation will be called.
 func (k *KindBuilder) On(handler OnStreamQueryResult) *KindBuilder {
 	if k.current == nil {

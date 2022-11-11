@@ -6,31 +6,22 @@ import (
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"os"
 	"testing"
 )
+
+type Example struct {
+	Value string
+}
 
 // Tests the systems capability to use an `or` clause between two matches.
 func TestMultiKindMatch(t *testing.T) {
 	t.Run("With v1 Client matching multiple kinds", func(t *testing.T) {
-		ctx, done := context.WithCancel(context.Background())
-		defer done()
-		url, hasURL := os.LookupEnv("PGCQRS_TEST_URL")
-		appBase, hasAppBase := os.LookupEnv("PGCQRS_TEST_APP_BASE")
-
-		if !hasURL || !hasAppBase {
-			t.Fatalf("Requires env PGCQRS_TEST_URL and PGCQRS_TEST_APP_BASE but is missing at least one")
-			return
-		}
-
-		config := v1.Config{
-			TransportType: v1.TransportTypeHTTP,
-			ServiceURL:    url,
-		}
-		system, err := config.SystemFromConfig()
-		require.NoError(t, err)
-		stream, err := system.Stream(ctx, appBase+"-"+faker.Name(), faker.Name())
-		require.NoError(t, err)
+		harness := setupHarness()
+		ctx := harness.ctx
+		t.Cleanup(func() {
+			harness.done()
+		})
+		stream := harness.stream
 
 		kind1 := faker.Name()
 		kind2 := faker.Name()
@@ -47,16 +38,16 @@ func TestMultiKindMatch(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Run("Able to match correct records on just match", func(t *testing.T) {
-			ctx, done := context.WithCancel(context.Background())
-			defer done()
 			var matchedEnvelopes []v1.Envelope
 			var matched []Example
+
 			q := stream.Query()
 			q.WithKind(kind1).On(v1.EntityFunc[Example](func(ctx context.Context, e v1.Envelope, entity Example) {
 				matchedEnvelopes = append(matchedEnvelopes, e)
 				matched = append(matched, entity)
 			}))
 			require.NoError(t, q.Stream(ctx))
+
 			if assert.Len(t, matched, 2) {
 				assert.Equal(t, value1, matched[0].Value)
 				assert.Equal(t, value2, matched[1].Value)

@@ -179,6 +179,15 @@ func (c *HttpTransportLayer) QueryBatchR2(parent context.Context, domain, stream
 	return c.post(parent, "query-batch-r2", url, query, out)
 }
 
+func (c *HttpTransportLayer) Meta(parent context.Context) (WireMetaV1, error) {
+	var meta WireMetaV1
+	url := "/v1/app"
+	err := c.get(parent, "meta", url, func(d *json.Decoder) error {
+		return d.Decode(&meta)
+	})
+	return meta, err
+}
+
 func NewHttpTransport(url string) *HttpTransportLayer {
 	return &HttpTransportLayer{
 		BaseURL: url,

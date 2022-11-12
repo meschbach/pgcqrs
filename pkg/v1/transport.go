@@ -13,6 +13,7 @@ type Transport interface {
 	Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error
 	QueryBatch(ctx context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error
 	QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error
+	Meta(ctx context.Context) (WireMetaV1, error)
 }
 
 type StreamTransport interface {
@@ -43,4 +44,13 @@ type WireMatcherV1 struct {
 	Property []string `json:"key"`
 	//Value represents acceptable values.  At this time only a single value is supported.
 	Value []string `json:"in"`
+}
+
+type WireMetaV1 struct {
+	Domains []WireMetaDomainV1 `json:"domains"`
+}
+
+type WireMetaDomainV1 struct {
+	Name    string   `json:"name"`
+	Streams []string `json:"streams"`
 }

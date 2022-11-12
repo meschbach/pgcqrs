@@ -184,6 +184,19 @@ func (m *memory) Query(ctx context.Context, domain, stream string, query WireQue
 	return nil
 }
 
+func (m *memory) Meta(parent context.Context) (WireMetaV1, error) {
+	var out WireMetaV1
+	err := m.simulateNetwork(parent, &memoryFuncOp{func(m *memory) {
+		for name, _ := range m.domains {
+			out.Domains = append(out.Domains, WireMetaDomainV1{
+				Name:    name,
+				Streams: nil,
+			})
+		}
+	}})
+	return out, err
+}
+
 func (m *memory) QueryBatchR2(parent context.Context, domain, stream string, query *WireBatchR2Request, out *WireBatchR2Result) error {
 	envelopes, err := m.AllEnvelopes(parent, domain, stream)
 	if err != nil {

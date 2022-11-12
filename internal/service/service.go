@@ -77,6 +77,7 @@ func (s *service) routes() http.Handler {
 	v1Router.Path("/app/{app}/{stream}/query").Methods(http.MethodPost).HandlerFunc(s.v1QueryRoute())
 	v1Router.Path("/app/{app}/{stream}/query-batch").Methods(http.MethodPost).HandlerFunc(s.v1QueryBatchRoute())
 	v1Router.Path("/app/{app}/{stream}/query-batch-r2").Methods(http.MethodPost).HandlerFunc(s.v1QueryBatchR2Route())
+	v1Router.Path("/app").Methods(http.MethodGet).HandlerFunc(s.v1Meta())
 	return root
 }
 

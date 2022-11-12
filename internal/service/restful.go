@@ -169,3 +169,54 @@ func presentMetaAsEnvelope(meta pgMeta) v1.Envelope {
 		Kind: meta.Kind,
 	}
 }
+
+func (s *service) v1Meta() http.HandlerFunc {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
+		var out v1.WireMetaV1
+		rows, err := s.storage.query(ctx, "SELECT distinct app FROM events_stream")
+		if err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+
+		for rows.Next() {
+			var app string
+			if err := rows.Scan(&app); err != nil {
+				restful.InternalError(writer, request, err)
+				return
+			}
+
+			var streams []string
+			queryStream := func() error {
+				streamRows, err := s.storage.query(ctx, "SELECT stream FROM events_stream WHERE app = $1", app)
+				if err != nil {
+					return err
+				}
+				defer streamRows.Close()
+				for streamRows.Next() {
+					var stream string
+					if err := streamRows.Scan(&stream); err != nil {
+						return err
+					}
+					streams = append(streams, stream)
+				}
+				return nil
+			}
+			if err := queryStream(); err != nil {
+				restful.InternalError(writer, request, err)
+				return
+			}
+			out.Domains = append(out.Domains, v1.WireMetaDomainV1{
+				Name:    app,
+				Streams: streams,
+			})
+		}
+		if err := rows.Err(); err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+
+		restful.Ok(writer, request, out)
+	}
+}

@@ -86,12 +86,70 @@ func main() {
 		Use:   "query",
 		Short: "issues a query against an application and stream",
 	}
-	query.PersistentFlags().StringVarP(&host, "host", "u", "http://localhost:9000", "Host to connect to")
 	query.PersistentFlags().StringVarP(&app, "app", "a", os.Getenv("PGCQRS_APP"), "Application name to query")
 	query.PersistentFlags().StringVarP(&stream, "stream", "s", os.Getenv("PGCQRS_STREAM"), "Stream to query")
 	query.PersistentFlags().StringVarP(&kind, "kind", "k", "", "Kind to query")
 	query.AddCommand(queryAll)
 	query.AddCommand(queryKind)
+
+	streamsList := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			cfg := v1.Config{
+				TransportType: v1.TransportTypeHTTP,
+				ServiceURL:    host,
+			}
+			sys, err := cfg.SystemFromConfig()
+			if err != nil {
+				return err
+			}
+
+			pairs, err := sys.ListStreams(ctx)
+			if err != nil {
+				return err
+			}
+			for _, domain := range pairs {
+				fmt.Printf("%#v\n", domain)
+			}
+			return nil
+		},
+	}
+	streams := &cobra.Command{Use: "streams"}
+	streams.AddCommand(streamsList)
+
+	appsList := &cobra.Command{
+		Use:     "list",
+		Aliases: []string{"ls"},
+		Short:   "Lists all apps or domains accessible within the host",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			ctx := cmd.Context()
+			cfg := v1.Config{
+				TransportType: v1.TransportTypeHTTP,
+				ServiceURL:    host,
+			}
+			sys, err := cfg.SystemFromConfig()
+			if err != nil {
+				return err
+			}
+
+			domains, err := sys.ListDomains(ctx)
+			if err != nil {
+				return err
+			}
+			for _, domain := range domains {
+				fmt.Printf("%s\n", domain)
+			}
+			return nil
+		},
+	}
+	apps := &cobra.Command{
+		Use:     "apps",
+		Aliases: []string{"domains"},
+		Short:   "Operations on apps or domains.",
+	}
+	apps.AddCommand(appsList)
 
 	root := &cobra.Command{
 		Use:           "pgcqrs",
@@ -99,7 +157,10 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	root.PersistentFlags().StringVarP(&host, "host", "u", "http://localhost:9000", "Host to connect to")
 	root.AddCommand(query)
+	root.AddCommand(apps)
+	root.AddCommand(streams)
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Encoutnered error while servicing request: %s\n", err.Error())

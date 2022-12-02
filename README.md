@@ -16,3 +16,7 @@ You probably should not as the following really needs to be implemented:
 
 ### Setup
 Run the migrator using `migrator primary` with the proper credentials.  Then you may start the service.
+
+## Releases History
+* v0.7.0 (not released yet) - Removes `kind` column.  Results in smaller database, faster inserts and queries.
+* v0.6.0 - batch query version 2

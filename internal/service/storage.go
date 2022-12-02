@@ -81,8 +81,8 @@ func (s *storage) unsafeStore(parent context.Context, app, stream, kind string, 
 	r.Close()
 
 	sql := `
-INSERT INTO events(kind, kind_id, event, stream_id)
-SELECT $1, (SELECT k.id FROM events_kind k WHERE k.kind = $1), $2, (SELECT s.id FROM events_stream as s WHERE s.app = $3 AND s.stream = $4)
+INSERT INTO events(kind_id, event, stream_id)
+SELECT (SELECT k.id FROM events_kind k WHERE k.kind = $1), $2, (SELECT s.id FROM events_stream as s WHERE s.app = $3 AND s.stream = $4)
 RETURNING id
 `
 	results, err := s.query(ctx, sql, kind, body, app, stream)

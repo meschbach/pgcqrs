@@ -42,7 +42,7 @@ func (s *System) ListDomains(ctx context.Context) ([]string, error) {
 
 type DomainStreamPair struct {
 	Domain string
-	App    string
+	Stream string
 }
 
 func (s *System) ListStreams(ctx context.Context) ([]DomainStreamPair, error) {
@@ -55,7 +55,7 @@ func (s *System) ListStreams(ctx context.Context) ([]DomainStreamPair, error) {
 		for _, s := range d.Streams {
 			names = append(names, DomainStreamPair{
 				Domain: d.Name,
-				App:    s,
+				Stream: s,
 			})
 		}
 	}

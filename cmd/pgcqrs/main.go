@@ -38,18 +38,22 @@ func main() {
 		Short: "retrieves all documents",
 		RunE: func(cmd *cobra.Command, args []string) error {
 			ctx := cmd.Context()
-			stream, err := configureStream(cmd.Context(), host, app, stream)
+			targetStream, err := configureStream(cmd.Context(), host, app, stream)
 			if err != nil {
 				return err
 			}
 
-			envelopes, err := stream.All(ctx)
+			envelopes, err := targetStream.All(ctx)
 			if err != nil {
 				return err
 			}
+			if len(envelopes) == 0 {
+				fmt.Printf("No records on %s %s\n", app, stream)
+				return nil
+			}
 			for _, e := range envelopes {
 				var out json.RawMessage
-				if err := stream.Get(ctx, e.ID, &out); err != nil {
+				if err := targetStream.Get(ctx, e.ID, &out); err != nil {
 					return err
 				}
 				fmt.Printf("%d(%s, %s): %s\n", e.ID, e.Kind, e.When, string(out))

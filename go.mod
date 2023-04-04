@@ -23,7 +23,7 @@ require (
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dhui/dktest v0.3.11 // indirect
-	github.com/docker/docker v20.10.17+incompatible // indirect
+	github.com/docker/docker v20.10.24+incompatible // indirect
 	github.com/elgs/gosplitargs v0.0.0-20161028071935-a491c5eeb3c8 // indirect
 	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/go-logr/logr v1.2.3 // indirect

@@ -37,7 +37,7 @@ func (c *HttpTransportLayer) post(parent context.Context, opName, resource strin
 
 	resp, err := c.wire.Do(req)
 	if err != nil {
-		return err
+		return &TransportError{err}
 	}
 	defer resp.Body.Close()
 
@@ -65,7 +65,7 @@ func (c *HttpTransportLayer) get(parent context.Context, opName, resource string
 
 	resp, err := c.wire.Do(req)
 	if err != nil {
-		return err
+		return &TransportError{err}
 	}
 	defer resp.Body.Close()
 
@@ -110,7 +110,7 @@ func (c *HttpTransportLayer) Submit(parent context.Context, app, stream, kind st
 
 	resp, err := c.wire.Do(req)
 	if err != nil {
-		return nil, err
+		return nil, &TransportError{err}
 	}
 	defer resp.Body.Close()
 
@@ -144,7 +144,7 @@ func (c *HttpTransportLayer) EnsureStream(parent context.Context, app string, st
 
 	resp, err := c.wire.Do(req)
 	if err != nil {
-		return err
+		return &TransportError{err}
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode != 200 {

@@ -2,7 +2,7 @@ package batchr2
 
 import (
 	"context"
-	"github.com/bxcodec/faker/v3"
+	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/require"

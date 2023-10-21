@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/bxcodec/faker/v3"
+	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/go-junk-bucket/pkg"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"strconv"

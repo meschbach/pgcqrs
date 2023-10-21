@@ -3,7 +3,7 @@ package batchr2
 import (
 	"context"
 	"encoding/json"
-	"github.com/bxcodec/faker/v3"
+	"github.com/go-faker/faker/v4"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/meschbach/pgcqrs/pkg/v1/query2"
 	"github.com/stretchr/testify/assert"

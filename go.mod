@@ -3,8 +3,8 @@ module github.com/meschbach/pgcqrs
 go 1.19
 
 require (
-	github.com/bxcodec/faker/v3 v3.8.0
 	github.com/elgs/gojq v0.0.0-20201120033525-b5293fef2759
+	github.com/go-faker/faker/v4 v4.2.0
 	github.com/golang-migrate/migrate/v4 v4.15.2
 	github.com/gorilla/mux v1.8.0
 	github.com/jackc/pgtype v1.14.0

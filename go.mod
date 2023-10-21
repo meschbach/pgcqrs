@@ -3,7 +3,7 @@ module github.com/meschbach/pgcqrs
 go 1.19
 
 require (
-	github.com/elgs/gojq v0.0.0-20201120033525-b5293fef2759
+	github.com/elgs/gojq v0.0.0-20230628214826-df5c4045598e
 	github.com/go-faker/faker/v4 v4.2.0
 	github.com/golang-migrate/migrate/v4 v4.15.2
 	github.com/gorilla/mux v1.8.0
@@ -24,7 +24,7 @@ require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/dhui/dktest v0.3.11 // indirect
 	github.com/docker/docker v20.10.24+incompatible // indirect
-	github.com/elgs/gosplitargs v0.0.0-20161028071935-a491c5eeb3c8 // indirect
+	github.com/elgs/gosplitargs v0.0.0-20230310130726-7d16e488436a // indirect
 	github.com/felixge/httpsnoop v1.0.3 // indirect
 	github.com/go-logr/logr v1.2.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect

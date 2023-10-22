@@ -114,7 +114,7 @@ func Serve(ctx context.Context, cfg Config) {
 	func() {
 		startup, span := tracer.Start(ctx, "pgcqrs.start")
 		defer span.End()
-		pool, err := pgxpool.Connect(startup, "postgres://"+cfg.Storage.Primary.DatabaseURL)
+		pool, err := pgxpool.New(startup, "postgres://"+cfg.Storage.Primary.DatabaseURL)
 		if err != nil {
 			panic(err)
 		}

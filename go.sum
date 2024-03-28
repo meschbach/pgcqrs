@@ -144,8 +144,8 @@ github.com/mattn/go-colorable v0.1.6/go.mod h1:u6P/XSegPjTcexA+o6vUJrdnUu04hMope
 github.com/mattn/go-isatty v0.0.5/go.mod h1:Iq45c/XA43vh69/j3iqttzPXn0bhXyGjM0Hdxcsrc5s=
 github.com/mattn/go-isatty v0.0.7/go.mod h1:Iq45c/XA43vh69/j3iqttzPXn0bhXyGjM0Hdxcsrc5s=
 github.com/mattn/go-isatty v0.0.12/go.mod h1:cbi8OIDigv2wuxKPP5vlRcQ1OAZbq2CE4Kysco4FUpU=
-github.com/meschbach/go-junk-bucket v0.1.0 h1:cTuthaHu08KEbidMsKfCFZwEuPaajkbNfvhTCHG14Es=
-github.com/meschbach/go-junk-bucket v0.1.0/go.mod h1:4NsTZPZGTyh6V3N776J3jwlCef43KnFwdJiLVmt8FFU=
+github.com/meschbach/go-junk-bucket v0.1.1-0.20240328033919-23d6f817c700 h1:04XnksjOH9TXa2Xk+dfyxC721X6qbY054/K4iBXITBc=
+github.com/meschbach/go-junk-bucket v0.1.1-0.20240328033919-23d6f817c700/go.mod h1:4NsTZPZGTyh6V3N776J3jwlCef43KnFwdJiLVmt8FFU=
 github.com/moby/term v0.5.0 h1:xt8Q1nalod/v7BqbG21f8mQPqH+xAaC9C3N3wfWbVP0=
 github.com/moby/term v0.5.0/go.mod h1:8FzsFHVUBGZdbDsJw/ot+X+d5HLUbvklYLJ9uGfcI3Y=
 github.com/morikuni/aec v1.0.0 h1:nP9CBfwrvYnBRgY6qfDQkygYDmYwOilePFkwzv4dU8A=

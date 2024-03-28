@@ -1,0 +1,113 @@
+syntax = "proto3";
+
+package ipc;
+option go_package = "pkg/ipc";
+
+import "google/protobuf/timestamp.proto";
+
+service Command {
+  rpc CreateStream(CreateStreamIn) returns (CreateStreamOut);
+  rpc Submit(SubmitIn) returns (SubmitOut);
+}
+
+service Query {
+  rpc ListStreams(ListStreamsIn) returns (ListStreamsOut);
+  rpc Get(GetIn) returns (GetOut);
+  rpc Query(QueryIn) returns (stream QueryOut);
+}
+
+message CreateStreamIn {
+  DomainStream target = 1;
+}
+
+message CreateStreamOut {
+  bool existed = 1;
+}
+
+
+message ListStreamsIn {
+}
+
+message ListStreamsOut {
+  repeated DomainStream target = 1;
+}
+
+message DomainStream {
+  string domain = 1;
+  string stream = 2;
+}
+
+message SubmitIn {
+  DomainStream events = 1;
+  string kind = 2;
+  bytes body = 3;
+  optional Consistency expectations = 4;
+}
+
+message SubmitOut {
+  int64 id = 1;
+  optional Consistency state = 2;
+}
+
+message GetIn{
+  DomainStream events = 1;
+  int64 id = 2;
+  optional Consistency expectations = 4;
+}
+
+message GetOut{
+  MaterializedEnvelope envelope = 1;
+  bytes payload = 2;
+  optional Consistency state = 3;
+}
+
+message Consistency {
+  // after indicates the last known event
+  int64 after = 1;
+}
+
+message MaterializedEnvelope {
+  int64 id = 1;
+  google.protobuf.Timestamp when = 2;
+  string kind = 3;
+}
+
+message QueryIn {
+  DomainStream events = 1;
+  repeated OnKindClause onKind = 2;
+  repeated OnIDClause onID = 3;
+  optional Consistency state = 4;
+}
+
+message OnKindClause {
+  //kind to match within the stream
+  string kind = 1;
+  //allOp will be notified for all documents of kind
+  optional int64 allOp = 2;
+  optional ResultInclude allOpConfig = 3;
+  repeated OnKindSubsetMatch subsets = 4;
+}
+
+message OnKindSubsetMatch {
+  bytes match = 1;
+  int64 opt = 2;
+  optional ResultInclude style = 3;
+}
+
+message OnIDClause {
+  int64 id = 1;
+  int64 op = 2;
+  optional ResultInclude style = 3;
+}
+
+message QueryOut {
+  int64 op = 1;
+  optional int64 id = 2;
+  optional MaterializedEnvelope envelope = 3;
+  optional bytes body = 4;
+}
+
+message ResultInclude {
+  optional bool envelope = 1;
+  optional bool body = 2;
+}

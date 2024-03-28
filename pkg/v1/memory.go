@@ -121,11 +121,24 @@ func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event 
 
 func (m *memory) GetEvent(ctx context.Context, domain, stream string, id int64, event interface{}) error {
 	var data []byte
+	missing := true //prevents a crash
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
-		event := m.domains[domain].streams[stream].packets[id]
-		data = event.data
+		if d, ok := m.domains[domain]; !ok {
+			return
+		} else {
+			if s, ok := d.streams[stream]; !ok {
+				return
+			} else {
+				event := s.packets[id]
+				data = event.data
+				missing = false
+			}
+		}
 	}}); err != nil {
 		return err
+	}
+	if missing {
+		return nil
 	}
 	return json.Unmarshal(data, event)
 }

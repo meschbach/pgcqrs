@@ -63,6 +63,10 @@ func (q *Query) StreamBatch(ctx context.Context) error {
 			return err
 		}
 	}
+	// Short circuit the request when there are no usable query elements
+	if request.Empty() {
+		return nil
+	}
 
 	reply, err := q.stream.QueryBatchR2(ctx, request)
 	if err != nil {

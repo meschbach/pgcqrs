@@ -11,6 +11,10 @@ type WireBatchR2Request struct {
 	OnID []WireBatchR2IDQuery `json:"ids"`
 }
 
+func (w WireBatchR2Request) Empty() bool {
+	return len(w.OnKinds) == 0 && len(w.OnID) == 0
+}
+
 // WireBatchR2KindQuery describes matching a specific kind of entity.  Either all or in part.
 type WireBatchR2KindQuery struct {
 	//Kind is the name of the type to be matched

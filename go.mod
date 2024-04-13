@@ -9,7 +9,7 @@ require (
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgtype v1.14.3
 	github.com/jackc/pgx/v5 v5.5.5
-	github.com/meschbach/go-junk-bucket v0.0.0-20240126171123-6acf1580b501
+	github.com/meschbach/go-junk-bucket v0.1.0
 	github.com/nsf/jsondiff v0.0.0-20230430225905-43f6cf3098c1
 	github.com/spf13/cobra v1.8.0
 	github.com/stretchr/testify v1.9.0

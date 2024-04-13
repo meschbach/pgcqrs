@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
@@ -106,9 +105,18 @@ func (s *service) serve(ctx context.Context, config *ListenerConfig) {
 
 func Serve(ctx context.Context, cfg Config) {
 	fmt.Println("Starting PG-CQRS Service")
-	if err := observability.SetupTracing(ctx, cfg.Telemetry); err != nil {
+	component, err := cfg.Telemetry.Start(ctx)
+	if err != nil {
 		panic(err)
 	}
+	go func() {
+		<-ctx.Done()
+		ctx, done := context.WithTimeout(context.Background(), 30*time.Second)
+		defer done()
+		if err := component.ShutdownGracefully(ctx); err != nil {
+			panic(err)
+		}
+	}()
 
 	s := &service{}
 	func() {

@@ -10,8 +10,12 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
+	"io"
 	"testing"
 )
+
+var trueValue = true
+var truePointer = &trueValue
 
 func TestV2System(t *testing.T) {
 	ctx, done := context.WithCancel(context.Background())
@@ -38,31 +42,58 @@ func TestV2System(t *testing.T) {
 		domainName := faker.Word()
 		streamName := faker.Word()
 		kindeName := faker.Word()
-		out, err := commandClient.CreateStream(ctx, &ipc.CreateStreamIn{Target: &ipc.DomainStream{
+
+		domainStream := &ipc.DomainStream{
 			Domain: domainName,
 			Stream: streamName,
-		}})
+		}
+
+		out, err := commandClient.CreateStream(ctx, &ipc.CreateStreamIn{Target: domainStream})
 		require.NoError(t, err)
 		assert.NotNil(t, out)
 		submitOut, err := commandClient.Submit(ctx, &ipc.SubmitIn{
-			Events: &ipc.DomainStream{
-				Domain: domainName,
-				Stream: streamName,
-			},
-			Kind: kindeName,
-			Body: []byte("true"),
+			Events: domainStream,
+			Kind:   kindeName,
+			Body:   []byte("true"),
 		})
 		require.NoError(t, err)
 		assert.NotNil(t, submitOut.Id)
 
-		getOut, err := queryClient.Get(ctx, &ipc.GetIn{
-			Events: &ipc.DomainStream{
-				Domain: domainName,
-				Stream: streamName,
-			},
-			Id: submitOut.Id,
+		t.Run("When getting by ID", func(t *testing.T) {
+			getOut, err := queryClient.Get(ctx, &ipc.GetIn{
+				Events: domainStream,
+				Id:     submitOut.Id,
+			})
+			require.NoError(t, err)
+			if assert.NotNil(t, getOut.Payload, "then has a payload") {
+				assert.Equal(t, "true", string(getOut.Payload))
+			}
 		})
-		require.NoError(t, err)
-		assert.NotNil(t, getOut.Payload)
+
+		t.Run("When querying", func(t *testing.T) {
+			callbackOp := int64(94)
+			queryResult, err := queryClient.Query(ctx, &ipc.QueryIn{
+				Events: domainStream,
+				OnKind: []*ipc.OnKindClause{
+					{
+						Kind:  kindeName,
+						AllOp: &callbackOp,
+						AllOpConfig: &ipc.ResultInclude{
+							Envelope: truePointer,
+							Body:     truePointer,
+						},
+					},
+				},
+			})
+			require.NoError(t, err)
+			opt, err := queryResult.Recv()
+			require.NoError(t, err)
+			if assert.NotNil(t, opt) {
+				assert.Equal(t, callbackOp, opt.Op, "slot is called back")
+			}
+			opt2, err := queryResult.Recv()
+			assert.ErrorIs(t, err, io.EOF, "expected end of stream")
+			assert.Nil(t, opt2)
+		})
 	})
 }

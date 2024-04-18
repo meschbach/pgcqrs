@@ -5,8 +5,12 @@ option go_package = "pkg/ipc";
 
 import "google/protobuf/timestamp.proto";
 
+/**
+ * Command is a service to send new commands.
+ */
 service Command {
   rpc CreateStream(CreateStreamIn) returns (CreateStreamOut);
+  // Submit creates a new event within the specified stream.
   rpc Submit(SubmitIn) returns (SubmitOut);
 }
 

@@ -33,7 +33,8 @@ type OperationResult struct {
 	Event    json.RawMessage
 }
 
-func (r *Repository) Stream(ctx context.Context, ops []Operation) (<-chan OperationResult, func(ctx context.Context) (int, error), error) {
+// Stream will execute the given operations against the data store once perform is called.
+func (r *Repository) Stream(ctx context.Context, ops []Operation) (onEachResult <-chan OperationResult, perform func(ctx context.Context) (int, error), err error) {
 	if len(ops) == 0 {
 		return nil, nil, errors.New("no target operations")
 	}

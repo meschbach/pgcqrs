@@ -81,6 +81,7 @@ message QueryIn {
   repeated OnKindClause onKind = 2;
   repeated OnIDClause onID = 3;
   optional Consistency state = 4;
+  optional OnEachEvent onEach = 5;
 }
 
 message OnKindClause {
@@ -94,7 +95,7 @@ message OnKindClause {
 
 message OnKindSubsetMatch {
   bytes match = 1;
-  int64 opt = 2;
+  int64 op = 2;
   optional ResultInclude style = 3;
 }
 
@@ -102,6 +103,11 @@ message OnIDClause {
   int64 id = 1;
   int64 op = 2;
   optional ResultInclude style = 3;
+}
+
+message OnEachEvent {
+  int64 op = 1;
+  optional ResultInclude style = 2;
 }
 
 message QueryOut {

@@ -7,9 +7,10 @@ import (
 )
 
 type Config struct {
-	Telemetry observability.Config
-	Storage   internal.Storage `json:"storage"`
-	Listener  *ListenerConfig  `json:"listener,omitempty"`
+	Telemetry    observability.Config
+	Storage      internal.Storage    `json:"storage"`
+	Listener     *ListenerConfig     `json:"listener,omitempty"`
+	GRPCListener *GRPCListenerConfig `json:"grpc-listener,omitempty"`
 }
 
 func (c *Config) LoadDefaults() {
@@ -32,4 +33,8 @@ func (l *ListenerConfig) LoadDefaults() {
 type TLSConfig struct {
 	KeyFile         *string `json:"key-file,omitempty"`
 	CertificateFile *string `json:"certificate-file,omitempty"`
+}
+
+type GRPCListenerConfig struct {
+	Address string `json:"address"`
 }

@@ -19,6 +19,7 @@ const _ = grpc.SupportPackageIsVersion7
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 type CommandClient interface {
 	CreateStream(ctx context.Context, in *CreateStreamIn, opts ...grpc.CallOption) (*CreateStreamOut, error)
+	// Submit creates a new event within the specified stream.
 	Submit(ctx context.Context, in *SubmitIn, opts ...grpc.CallOption) (*SubmitOut, error)
 }
 
@@ -53,6 +54,7 @@ func (c *commandClient) Submit(ctx context.Context, in *SubmitIn, opts ...grpc.C
 // for forward compatibility
 type CommandServer interface {
 	CreateStream(context.Context, *CreateStreamIn) (*CreateStreamOut, error)
+	// Submit creates a new event within the specified stream.
 	Submit(context.Context, *SubmitIn) (*SubmitOut, error)
 	mustEmbedUnimplementedCommandServer()
 }

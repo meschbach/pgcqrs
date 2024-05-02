@@ -19,3 +19,12 @@ WHERE es.app = %s and es.stream = %s and e.id = %s`,
 
 	q.append(query)
 }
+
+func WithMatchID(domain, stream string, id int64, op int) Operation {
+	return &matchID{
+		app:    domain,
+		stream: stream,
+		id:     id,
+		op:     op,
+	}
+}

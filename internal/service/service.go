@@ -8,8 +8,10 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
+	"github.com/thejerf/suture/v4"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 )
@@ -118,6 +120,7 @@ func Serve(ctx context.Context, cfg Config) {
 		}
 	}()
 
+	var appDone <-chan error
 	s := &service{}
 	func() {
 		startup, span := tracer.Start(ctx, "pgcqrs.start")
@@ -128,6 +131,20 @@ func Serve(ctx context.Context, cfg Config) {
 		}
 		s.storage = &storage{pg: pool}
 		s.repository = storage2.RepositoryWithPool(pool)
+
+		app := suture.NewSimple("pgcqrs")
+		if cfg.GRPCListener != nil {
+			app.Add(&grpcPort{
+				config:  cfg.GRPCListener,
+				oldCore: s.storage,
+				core:    s.repository,
+			})
+		}
+		appDone = app.ServeBackground(ctx)
 		s.serve(startup, cfg.Listener)
 	}()
+	appDoneError := <-appDone
+	if appDoneError != nil {
+		fmt.Fprintf(os.Stderr, "Error with app: %s\n", appDoneError.Error())
+	}
 }

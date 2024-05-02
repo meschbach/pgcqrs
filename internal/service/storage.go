@@ -117,6 +117,8 @@ func (n *noSuchIDError) Error() string {
 	return fmt.Sprintf("ID %d does not exist for app %q and stream %q", n.id, n.app, n.stream)
 }
 
+// fetchPayload retrieves the bytes of the requested event identified by {app,stream,id}.  if no such event could be
+// found then noSuchIDError will be returned
 func (s *storage) fetchPayload(parent context.Context, app, stream string, id int64) ([]byte, error) {
 	ctx, span := tracer.Start(parent, "fetchPayload")
 	defer span.End()
@@ -182,6 +184,7 @@ func (s *storage) applyQuery(parent context.Context, app, stream string, params 
 	return nil
 }
 
+// dispatchRowMeta converts a database row for event metadata into a pgMeta object
 func (s *storage) dispatchRowMeta(ctx context.Context, results pgx.Rows, extractEvent bool, onEvent OnEvent) (int, error) {
 	count := 0
 	for results.Next() {

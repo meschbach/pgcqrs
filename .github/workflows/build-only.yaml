@@ -32,10 +32,43 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
-      - name: Build and push
+      - name: Build and push migrator
+        uses: docker/build-push-action@v5
+        with:
+          platforms: "linux/amd64,linux/arm64"
+          file: cmd/service/Dockerfile
+          push: false
+          tags: 'meschbach/pgcqrs-migrator:${{ env.BRANCH }}'
+          load: true
+      - name: Build and push service
         uses: docker/build-push-action@v5
         with:
           platforms: "linux/amd64,linux/arm64"
           file: cmd/service/Dockerfile
           push: false
           tags: 'meschbach/pgcqrs:${{ env.BRANCH }}'
+          load: true
+      - name: Setup Go 1.22
+        uses: actions/setup-go@v5
+        with:
+          go-version: 1.22
+      - name: Test
+        run: |
+          #TODO: would this be better as a Docker Compose setup?
+          docker run --name pg -e POSTGRES_PASSWORD=mysecretpassword --datch postgres
+          docker run --rm  --volume deploy/integration-tests:/secrets 'meschbach/pgcqrs-migrator:${{ env.BRANCH }}'
+          docker run --detach --publish 9000:9000 --publish 9001:9001  --volume deploy/integration-tests:/secrets 'meschbach/pgcqrs:${{ env.BRANCH }}'
+
+          export PGCQRS_TEST_TRANSPORT="memory"
+          export PGCQRS_TEST_URL="http://localhost:9000"
+          export PGCQRS_TEST_APP_BASE="systest-"
+          go test -count=1 --timeout 5s ./systest/...
+
+          export PGCQRS_TEST_URL="http://localhost:9000"
+          export PGCQRS_TEST_APP_BASE="systest-"
+          go test -count=1 --timeout 5s ./systest/...
+
+          export PGCQRS_TEST_TRANSPORT="grpc"
+          export PGCQRS_TEST_URL="localhost:9001"
+          export PGCQRS_TEST_APP_BASE="systest-"
+          go test -count=1 --timeout 5s ./systest/...

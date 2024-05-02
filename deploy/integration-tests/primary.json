@@ -1,0 +1,12 @@
+{
+  "storage": {
+    "primary": {
+      "url": "postgres:mysecretpassword@pg:5432/postgres"
+    }
+  },
+  "listener": {
+  },
+  "grpc-listener": {
+    "address": "localhost:9001"
+  }
+}

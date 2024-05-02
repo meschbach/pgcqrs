@@ -35,7 +35,7 @@ jobs:
       - name: Build and push migrator
         uses: docker/build-push-action@v5
         with:
-          platforms: "linux/amd64,linux/arm64"
+#          platforms: "linux/amd64,linux/arm64"
           file: cmd/service/Dockerfile
           push: false
           tags: 'meschbach/pgcqrs-migrator:${{ env.BRANCH }}'
@@ -43,7 +43,7 @@ jobs:
       - name: Build and push service
         uses: docker/build-push-action@v5
         with:
-          platforms: "linux/amd64,linux/arm64"
+#          platforms: "linux/amd64,linux/arm64"
           file: cmd/service/Dockerfile
           push: false
           tags: 'meschbach/pgcqrs:${{ env.BRANCH }}'

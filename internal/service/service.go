@@ -6,11 +6,12 @@ import (
 	"fmt"
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
-	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
+	"github.com/thejerf/suture/v4"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 	"net/http"
+	"os"
 	"strconv"
 	"time"
 )
@@ -106,10 +107,20 @@ func (s *service) serve(ctx context.Context, config *ListenerConfig) {
 
 func Serve(ctx context.Context, cfg Config) {
 	fmt.Println("Starting PG-CQRS Service")
-	if err := observability.SetupTracing(ctx, cfg.Telemetry); err != nil {
+	component, err := cfg.Telemetry.Start(ctx)
+	if err != nil {
 		panic(err)
 	}
+	go func() {
+		<-ctx.Done()
+		ctx, done := context.WithTimeout(context.Background(), 30*time.Second)
+		defer done()
+		if err := component.ShutdownGracefully(ctx); err != nil {
+			panic(err)
+		}
+	}()
 
+	var appDone <-chan error
 	s := &service{}
 	func() {
 		startup, span := tracer.Start(ctx, "pgcqrs.start")
@@ -120,6 +131,20 @@ func Serve(ctx context.Context, cfg Config) {
 		}
 		s.storage = &storage{pg: pool}
 		s.repository = storage2.RepositoryWithPool(pool)
+
+		app := suture.NewSimple("pgcqrs")
+		if cfg.GRPCListener != nil {
+			app.Add(&grpcPort{
+				config:  cfg.GRPCListener,
+				oldCore: s.storage,
+				core:    s.repository,
+			})
+		}
+		appDone = app.ServeBackground(ctx)
 		s.serve(startup, cfg.Listener)
 	}()
+	appDoneError := <-appDone
+	if appDoneError != nil {
+		fmt.Fprintf(os.Stderr, "Error with app: %s\n", appDoneError.Error())
+	}
 }

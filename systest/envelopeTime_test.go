@@ -35,7 +35,9 @@ func TestSystemClient(t *testing.T) {
 		t.Run("EnvelopesFor", func(t *testing.T) {
 			retrieved, err := stream.EnvelopesFor(ctx, r.ID)
 			require.NoError(t, err)
-			assert.Equal(t, originalEnvelope[0].When, retrieved[0].When)
+			if assert.Len(t, retrieved, 1, "required at a single result") {
+				assert.Equal(t, originalEnvelope[0].When, retrieved[0].When)
+			}
 		})
 	})
 }

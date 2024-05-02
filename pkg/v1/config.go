@@ -9,6 +9,7 @@ import (
 const (
 	TransportTypeMemory = "memory"
 	TransportTypeHTTP   = "http"
+	TransportTypeGRPC   = "grpc"
 )
 
 type Config struct {
@@ -28,6 +29,12 @@ func (c *Config) SystemFromConfig() (*System, error) {
 		physical = NewHttpTransport(c.ServiceURL)
 	case "": // Original default behavior
 		physical = NewHttpTransport(c.ServiceURL)
+	case TransportTypeGRPC:
+		var err error
+		physical, err = newGrpcAdapter(c.ServiceURL)
+		if err != nil {
+			return nil, err
+		}
 	default:
 		return nil, &UnknownTransportError{TransportType: c.TransportType}
 	}

@@ -2,7 +2,10 @@
 
 set -xe
 ./service serve &
-trap "trap - SIGTERM && kill -- -$$" SIGINT SIGTERM EXIT
+function cleanup() {
+    kill %1
+}
+trap cleanup SIGINT SIGTERM EXIT
 # TODO: better wait mechanism to ensure the service has started.
 sleep 1
 

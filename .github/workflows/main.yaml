@@ -25,6 +25,8 @@ jobs:
       - name: Run integration tests
         run: |
           docker run --publish 5432:5432 --name pg -e POSTGRES_PASSWORD=mysecretpassword --detach postgres
+          timeout 60s sh -c 'until docker ps | grep pg | grep -q Up; do echo "Waiting for postgres to be healthy..."; sleep 2; done'
+          sleep 5
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./migrator primary
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./integration-tests.sh
   publish_images:

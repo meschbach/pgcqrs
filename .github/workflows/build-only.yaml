@@ -27,7 +27,7 @@ jobs:
           docker run --name pg -e POSTGRES_PASSWORD=mysecretpassword --detach postgres
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./migrator primary
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./integration-tests.sh
-  system_tests:
+  publish_images:
     runs-on: ubuntu-latest
     needs: [unit_tests]
     if: github.triggering_actor == 'meschbach' &&  github.ref == 'refs/heads/testing-container'
@@ -58,23 +58,3 @@ jobs:
           tags: 'meschbach/pgcqrs:${{ env.BRANCH }}'
           load: true
 
-      - name: Test
-        run: |
-          #TODO: would this be better as a Docker Compose setup?
-          docker run --name pg -e POSTGRES_PASSWORD=mysecretpassword --detach postgres
-          docker run --rm  --volume $PWD/deploy/integration-tests:/secrets 'meschbach/pgcqrs-migrator:${{ env.BRANCH }}' primary
-          docker run --detach --publish 9000:9000 --publish 9001:9001  --volume $PWD/deploy/integration-tests:/secrets 'meschbach/pgcqrs:${{ env.BRANCH }}'
-
-          export PGCQRS_TEST_TRANSPORT="memory"
-          export PGCQRS_TEST_URL="http://localhost:9000"
-          export PGCQRS_TEST_APP_BASE="systest-"
-          go test -count=1 --timeout 5s ./systest/...
-
-          export PGCQRS_TEST_URL="http://localhost:9000"
-          export PGCQRS_TEST_APP_BASE="systest-"
-          go test -count=1 --timeout 5s ./systest/...
-
-          export PGCQRS_TEST_TRANSPORT="grpc"
-          export PGCQRS_TEST_URL="localhost:9001"
-          export PGCQRS_TEST_APP_BASE="systest-"
-          go test -count=1 --timeout 5s ./systest/...

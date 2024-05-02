@@ -1,0 +1,68 @@
+name: Go
+
+on: [push]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      matrix:
+        go-version: [ '1.21', '1.22' ]
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Setup Go ${{ matrix.go-version }}
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ matrix.go-version }}
+      # You can test your matrix by printing the current Go version
+      - name: Build and run unit tests ${{ matrix.go-version }}
+        run: |
+          ./build.sh
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Run integration tests
+        run: |
+          docker run --publish 5432:5432 --name pg -e POSTGRES_PASSWORD=mysecretpassword --detach postgres
+          timeout 60s sh -c 'until docker ps | grep pg | grep -q Up; do echo "Waiting for postgres to be healthy..."; sleep 2; done'
+          sleep 5
+          CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./migrator primary
+          CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./integration-tests.sh
+  publish_images:
+    runs-on: ubuntu-latest
+    needs: [tests]
+    if: github.triggering_actor == 'meschbach' &&  (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: "Setup Environment"
+        run: |
+          echo "BRANCH=${GITHUB_REF##*/}" >> $GITHUB_ENV
+      - name: Set up QEMU
+        uses: docker/setup-qemu-action@v3
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+      - name: Login to Docker Hub
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+      - name: Build and push migrator
+        uses: docker/build-push-action@v5
+        with:
+          platforms: "linux/amd64,linux/arm64"
+          file: cmd/migrator/Dockerfile
+          push: true
+          tags: 'meschbach/pgcqrs-migrator:${{ env.BRANCH }}'
+      - name: Build and push service
+        uses: docker/build-push-action@v5
+        with:
+          platforms: "linux/amd64,linux/arm64"
+          file: cmd/service/Dockerfile
+          push: true
+          tags: 'meschbach/pgcqrs:${{ env.BRANCH }}'

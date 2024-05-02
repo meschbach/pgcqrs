@@ -55,7 +55,7 @@ jobs:
       - name: Test
         run: |
           #TODO: would this be better as a Docker Compose setup?
-          docker run --name pg -e POSTGRES_PASSWORD=mysecretpassword --datch postgres
+          docker run --name pg -e POSTGRES_PASSWORD=mysecretpassword --detach postgres
           docker run --rm  --volume deploy/integration-tests:/secrets 'meschbach/pgcqrs-migrator:${{ env.BRANCH }}'
           docker run --detach --publish 9000:9000 --publish 9001:9001  --volume deploy/integration-tests:/secrets 'meschbach/pgcqrs:${{ env.BRANCH }}'
 

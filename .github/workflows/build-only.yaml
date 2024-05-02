@@ -36,7 +36,7 @@ jobs:
         uses: docker/build-push-action@v5
         with:
 #          platforms: "linux/amd64,linux/arm64"
-          file: cmd/service/Dockerfile
+          file: cmd/migrator/Dockerfile
           push: false
           tags: 'meschbach/pgcqrs-migrator:${{ env.BRANCH }}'
           load: true

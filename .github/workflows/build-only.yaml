@@ -31,6 +31,6 @@ jobs:
       - name: Build and push
         uses: docker/build-push-action@v5
         with:
-          context: ./cmd/service/Dockerfile
+          context: cmd/service
           push: false
           tags: 'meschbach/pgcqrs:${{ env.BRANCH }}'

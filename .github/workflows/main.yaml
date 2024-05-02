@@ -24,7 +24,7 @@ jobs:
         uses: docker/setup-qemu-action@v3
       - name: Run integration tests
         run: |
-          docker run --name pg -e POSTGRES_PASSWORD=mysecretpassword --detach postgres
+          docker run --publish 5432:5432 --name pg -e POSTGRES_PASSWORD=mysecretpassword --detach postgres
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./migrator primary
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./integration-tests.sh
   publish_images:

@@ -1,7 +1,7 @@
 {
   "storage": {
     "primary": {
-      "url": "postgres:mysecretpassword@pg:5432/postgres"
+      "url": "postgres:mysecretpassword@localhost:5432/postgres"
     }
   },
   "listener": {

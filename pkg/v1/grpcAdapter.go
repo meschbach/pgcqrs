@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
 	"io"
 	"time"
@@ -22,7 +23,7 @@ type grpcAdapter struct {
 
 func newGrpcAdapter(url string) (*grpcAdapter, error) {
 	//todo: figure out a better mechanism for secure transport
-	conn, err := grpc.Dial(url, grpc.WithInsecure())
+	conn, err := grpc.Dial(url, grpc.WithInsecure(), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return nil, err
 	}

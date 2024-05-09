@@ -7,6 +7,10 @@ import (
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/thejerf/suture/v4"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"net"
@@ -42,44 +46,29 @@ type grpcQuery struct {
 }
 
 func (g *grpcQuery) ListStreams(ctx context.Context, in *ipc.ListStreamsIn) (*ipc.ListStreamsOut, error) {
+	span := trace.SpanFromContext(ctx)
 	//todo: convert to streaming to reduce heap usage on the service
 	var out = &ipc.ListStreamsOut{}
 	//todo: find common factors with s.v1Meta()
-	rows, err := g.oldCore.query(ctx, "SELECT distinct app FROM events_stream")
+	rows, err := g.oldCore.query(ctx, "SELECT app, stream FROM events_stream")
 	if err != nil {
 		return nil, err
 	}
 
 	for rows.Next() {
-		var app string
-		if err := rows.Scan(&app); err != nil {
+		var app, stream string
+		if err := rows.Scan(&app, &stream); err != nil {
+			span.SetStatus(codes.Error, "failed to extract results")
 			//return different
 			return nil, err
 		}
 
-		queryStream := func() error {
-			streamRows, err := g.oldCore.query(ctx, "SELECT stream FROM events_stream WHERE app = $1", app)
-			if err != nil {
-				return err
-			}
-			defer streamRows.Close()
-			for streamRows.Next() {
-				var stream string
-				if err := streamRows.Scan(&stream); err != nil {
-					return err
-				}
-				//append different
-				out.Target = append(out.Target, &ipc.DomainStream{
-					Domain: app,
-					Stream: stream,
-				})
-			}
-			return nil
-		}
-		if err := queryStream(); err != nil {
-			return out, err
-		}
+		out.Target = append(out.Target, &ipc.DomainStream{
+			Domain: app,
+			Stream: stream,
+		})
 	}
+	span.SetAttributes(attribute.Int("streams.count", len(out.Target)))
 	return out, rows.Err()
 }
 
@@ -202,6 +191,7 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 	}
 	//build service
 	var opts []grpc.ServerOption
+	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	service := grpc.NewServer(opts...)
 	ipc.RegisterCommandServer(service, &grpcCommand{
 		oldCore: g.oldCore,

@@ -7,6 +7,10 @@ import (
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/thejerf/suture/v4"
+	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"net"
@@ -202,6 +206,7 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 	}
 	//build service
 	var opts []grpc.ServerOption
+	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
 	service := grpc.NewServer(opts...)
 	ipc.RegisterCommandServer(service, &grpcCommand{
 		oldCore: g.oldCore,

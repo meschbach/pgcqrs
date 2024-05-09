@@ -5,7 +5,7 @@ go 1.21
 require (
 	github.com/elgs/gojq v0.0.0-20230628214826-df5c4045598e
 	github.com/go-faker/faker/v4 v4.3.0
-	github.com/golang-migrate/migrate/v4 v4.17.0
+	github.com/golang-migrate/migrate/v4 v4.17.1
 	github.com/gorilla/mux v1.8.1
 	github.com/jackc/pgtype v1.14.3
 	github.com/jackc/pgx/v5 v5.5.5
@@ -44,6 +44,7 @@ require (
 	github.com/jackc/pgservicefile v0.0.0-20231201235250-de7065d80cb9 // indirect
 	github.com/jackc/pgx/v4 v4.18.2 // indirect
 	github.com/jackc/puddle/v2 v2.2.1 // indirect
+	github.com/lib/pq v1.10.9 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/rogpeppe/go-internal v1.11.0 // indirect
 	github.com/shopspring/decimal v1.3.1 // indirect

@@ -36,13 +36,23 @@ jobs:
     needs: [tests]
     if: github.triggering_actor == 'meschbach' &&  (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     timeout-minutes: 5
+    # needed for version bumping
+    permissions:
+          contents: write
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
+      - name: Bump version and push tag
+        uses: anothrNick/github-tag-action@v1 # Don't use @master or @v1 unless you're happy to test the latest version
+        id: version
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} # if you don't want to set write permissions use a PAT token
+          WITH_V: true
+          DEFAULT_BUMP: patch
       - name: "Setup Environment"
         run: |
-          echo "BRANCH=${GITHUB_REF##*/}" >> $GITHUB_ENV
+          echo "BRANCH=${{ steps.version.outputs.tag }}" |sed 's/v//g' >> $GITHUB_ENV
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx

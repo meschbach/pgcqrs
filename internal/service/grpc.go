@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"crypto/tls"
 	"errors"
 	"fmt"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
@@ -12,6 +13,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"net"
 	"time"
@@ -192,6 +194,17 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 	//build service
 	var opts []grpc.ServerOption
 	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	if g.config.ServicePKI != nil {
+		keyPair, err := tls.LoadX509KeyPair(g.config.ServicePKI.CertificateFile, g.config.ServicePKI.KeyFile)
+		if err != nil {
+			return err
+		}
+		config := &tls.Config{
+			Certificates: []tls.Certificate{keyPair},
+			ClientAuth:   tls.NoClientCert,
+		}
+		opts = append(opts, grpc.Creds(credentials.NewTLS(config)))
+	}
 	service := grpc.NewServer(opts...)
 	ipc.RegisterCommandServer(service, &grpcCommand{
 		oldCore: g.oldCore,

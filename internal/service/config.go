@@ -36,5 +36,11 @@ type TLSConfig struct {
 }
 
 type GRPCListenerConfig struct {
-	Address string `json:"address"`
+	Address    string            `json:"address"`
+	ServicePKI *PKIServiceConfig `json:"service-pki,omitempty"`
+}
+
+type PKIServiceConfig struct {
+	KeyFile         string `json:"key-file"`
+	CertificateFile string `json:"certificate-file"`
 }

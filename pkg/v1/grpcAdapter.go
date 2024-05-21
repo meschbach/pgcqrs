@@ -2,12 +2,19 @@ package v1
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"encoding/json"
 	"fmt"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
 	"io"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -22,8 +29,30 @@ type grpcAdapter struct {
 }
 
 func newGrpcAdapter(url string) (*grpcAdapter, error) {
-	//todo: figure out a better mechanism for secure transport
-	conn, err := grpc.Dial(url, grpc.WithInsecure(), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
+	var creds credentials.TransportCredentials
+	if caFile, has := os.LookupEnv("PGCQRS_GRPC_CA"); has {
+		//todo: figure out a better mechanism for secure transport
+		certPath, err := filepath.Abs(caFile)
+		if err != nil {
+			return nil, err
+		}
+		cert, err := ioutil.ReadFile(certPath)
+		if err != nil {
+			return nil, err
+		}
+		pool := x509.NewCertPool()
+		if !pool.AppendCertsFromPEM(cert) {
+			return nil, fmt.Errorf("unable to add certificate to pool")
+		}
+		config := &tls.Config{
+			RootCAs: pool,
+		}
+		creds = credentials.NewTLS(config)
+	} else {
+		creds = insecure.NewCredentials()
+	}
+
+	conn, err := grpc.Dial(url, grpc.WithTransportCredentials(creds), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return nil, err
 	}

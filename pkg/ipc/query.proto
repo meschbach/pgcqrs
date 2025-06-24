@@ -14,9 +14,20 @@ service Command {
   rpc Submit(SubmitIn) returns (SubmitOut);
 }
 
+/**
+ * Query is a service to retrieve data from the system.  Query servers may be behind Command services for device
+ * submission.
+ */
 service Query {
   rpc ListStreams(ListStreamsIn) returns (ListStreamsOut);
+  /**
+   * Get retrieves a single event from the system.
+   */
   rpc Get(GetIn) returns (GetOut);
+  /**
+   * Query initiates a stream of events matching the target query.  QueryIn contains a set of clauses with handler tags
+   * which will return a set of QueryOut events.
+   */
   rpc Query(QueryIn) returns (stream QueryOut);
 }
 
@@ -36,72 +47,161 @@ message ListStreamsOut {
   repeated DomainStream target = 1;
 }
 
+/**
+ * DomainStream is the named stream from which to perform operations.
+ */
 message DomainStream {
+  /**
+   * domain is a grouping of streams
+   */
   string domain = 1;
+  /**
+   * stream is a specific sequence of related events
+   */
   string stream = 2;
 }
 
 message SubmitIn {
+  // events is the particular streams
   DomainStream events = 1;
+  // kind is the event type.  useful for filtering or knowing how to interpret the contents.
   string kind = 2;
+  // JSON encoded body of the event in question.
   bytes body = 3;
+  // expectations are not currently used.
   optional Consistency expectations = 4;
 }
 
 message SubmitOut {
+  // id is the event ID to be referred to
   int64 id = 1;
+  // state, when set, provides a momento for ensuring the object exists
   optional Consistency state = 2;
 }
 
+/**
+ * GetIn describes the retrieval of a specific event.
+ */
 message GetIn{
+  // events describes the expected domain and stream this event must be attached to.
   DomainStream events = 1;
+  // id is the event stream ID for the specific targeted event.
   int64 id = 2;
+  // expectations describes how the event should be returned to the client.
   optional Consistency expectations = 4;
 }
 
+/**
+ * GetOut describes the results of a GetIn.
+ */
 message GetOut{
+  /**
+   * envelope describes the event metadata
+   */
   MaterializedEnvelope envelope = 1;
+  /**
+   * payload is a JSON encoded body of the event
+   */
   bytes payload = 2;
+  /**
+   * state contains the latest modification state for this event.
+   */
   optional Consistency state = 3;
 }
 
+/**
+ * Consistency is an opaque structure for describing the observation of consistency.  Used in cases to detect conflicts
+ * or catch up on passing events.
+ */
 message Consistency {
-  // after indicates the last known event
+  // after indicates an event time coordinate.
   int64 after = 1;
 }
 
+/**
+ * MaterializedEnvelope describes a particular event envelope.
+ */
 message MaterializedEnvelope {
+  // id is the unique event ID within the system
   int64 id = 1;
+  // when is the service recorded timestamp of when the event in question occurred
   google.protobuf.Timestamp when = 2;
+  // kind is the type of event which is represented by this ID.
   string kind = 3;
 }
 
+/**
+ * QueryIn describes the parameters and constraints for a specific query stream.
+ *
+ * A query must specify the domain and stream for selection from.  A set of clauses filter through each event within
+ * the query and return a tag on the QueryOut.
+ */
 message QueryIn {
+  /**
+   * events is the stream sequence to filter from.
+   */
   DomainStream events = 1;
+  /**
+   * OnKindClause matches events of a specific kind, optionally with additional clauses to further filter events of
+   * interest.
+   */
   repeated OnKindClause onKind = 2;
+  /**
+   * onID describes specific IDs we are interested in retrieving.
+   */
   repeated OnIDClause onID = 3;
+  /**
+   * state describes the target consistency model to use for this particular query.  Useful for repeated queries to
+   * ensure all events are observed.
+   */
   optional Consistency state = 4;
+  /**
+   * onEach matches all events within the the target domain stream.
+   */
   optional OnEachEvent onEach = 5;
 }
 
+/**
+ * OnKindClause configures a filter to match specific kinds of events matching additional datils.
+ */
 message OnKindClause {
   //kind to match within the stream
   string kind = 1;
-  //allOp will be notified for all documents of kind
+  //allOp contains the tag for each event matching this kind.  allOpConfig should be set if this value is set.
   optional int64 allOp = 2;
+  // allOpConfig describes how to return each event for matching all events.  This element has no effect if allOp is
+  // not set.
   optional ResultInclude allOpConfig = 3;
+  /**
+   * subsets describes interest in matching a subset of a given document against each document for return.
+   */
   repeated OnKindSubsetMatch subsets = 4;
 }
 
+/**
+ * OnKindSubsetMatch performs subset matches against the target events.
+ */
 message OnKindSubsetMatch {
+  /**
+   * match is the JSON document to match a subset of keys with exact matches with.
+   */
   bytes match = 1;
+  /**
+   * op is the tag to be returned
+   */
   int64 op = 2;
+  /**
+   * style describes how each operation should be returned.
+   */
   optional ResultInclude style = 3;
 }
 
 message OnIDClause {
+  // id is the event ID to be retrieved
   int64 id = 1;
+  // op is the tag for the target handler to be returned in the result stream
   int64 op = 2;
+  // style details the interested data to be returned.
   optional ResultInclude style = 3;
 }
 
@@ -110,14 +210,40 @@ message OnEachEvent {
   optional ResultInclude style = 2;
 }
 
+/**
+ * QueryOut represents a single event of interest.
+ */
 message QueryOut {
+  /**
+   * op is the operation tag which matched the event.  Generally used to manage dispatching the event to an appropriate
+   * handler.
+   */
   int64 op = 1;
+  /**
+   * id is the ID of the event in question
+   */
   optional int64 id = 2;
+  /**
+   * envelope is the event for the target event in question
+   */
   optional MaterializedEnvelope envelope = 3;
+  /**
+   * body is the JSON encoded by body of the target object.
+   */
   optional bytes body = 4;
 }
 
+/**
+ * ResultInclude describes how a result set should be returned.  If no value is selected then the operation tag will
+ * still be invoked without any additional data.  This may be useful for counting events among other reasons.
+ */
 message ResultInclude {
+  /**
+   * attaches the envelope but not the data
+   */
   optional bool envelope = 1;
+  /**
+   * body returns the JSON encoded body of the event
+   */
   optional bool body = 2;
 }

@@ -23,12 +23,12 @@ var falsy = false
 var yes = &truthful
 var no = &falsy
 
-type grpcAdapter struct {
+type GrpcAdapter struct {
 	commands ipc.CommandClient
 	queries  ipc.QueryClient
 }
 
-func newGrpcAdapter(url string) (*grpcAdapter, error) {
+func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	var creds credentials.TransportCredentials
 	if caFile, has := os.LookupEnv("PGCQRS_GRPC_CA"); has {
 		//todo: figure out a better mechanism for secure transport
@@ -58,13 +58,13 @@ func newGrpcAdapter(url string) (*grpcAdapter, error) {
 	}
 	commands := ipc.NewCommandClient(conn)
 	queries := ipc.NewQueryClient(conn)
-	return &grpcAdapter{
+	return &GrpcAdapter{
 		commands,
 		queries,
 	}, nil
 }
 
-func (g *grpcAdapter) EnsureStream(ctx context.Context, domain string, stream string) error {
+func (g *GrpcAdapter) EnsureStream(ctx context.Context, domain string, stream string) error {
 	_, err := g.commands.CreateStream(ctx, &ipc.CreateStreamIn{Target: &ipc.DomainStream{
 		Domain: domain,
 		Stream: stream,
@@ -75,7 +75,7 @@ func (g *grpcAdapter) EnsureStream(ctx context.Context, domain string, stream st
 	return nil
 }
 
-func (g *grpcAdapter) Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error) {
+func (g *GrpcAdapter) Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error) {
 	body, err := json.Marshal(event)
 	if err != nil {
 		return nil, err
@@ -94,7 +94,7 @@ func (g *grpcAdapter) Submit(ctx context.Context, domain, stream, kind string, e
 	return &Submitted{ID: result.Id}, nil
 }
 
-func (g *grpcAdapter) GetEvent(ctx context.Context, domain, stream string, id int64, event interface{}) error {
+func (g *GrpcAdapter) GetEvent(ctx context.Context, domain, stream string, id int64, event interface{}) error {
 	result, err := g.queries.Get(ctx, &ipc.GetIn{
 		Events: &ipc.DomainStream{
 			Domain: domain,
@@ -112,7 +112,7 @@ func (g *grpcAdapter) GetEvent(ctx context.Context, domain, stream string, id in
 	return nil
 }
 
-func (g *grpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error) {
+func (g *GrpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error) {
 	op := int64(42)
 	result, err := g.queries.Query(ctx, &ipc.QueryIn{
 		Events: &ipc.DomainStream{
@@ -151,18 +151,20 @@ func (g *grpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) (
 		}
 		output = append(output, Envelope{
 			ID:   out.Envelope.Id,
-			When: out.Envelope.When.String(),
+			When: out.Envelope.When.AsTime().Format(time.RFC3339Nano),
 			Kind: out.Envelope.Kind,
 		})
 	}
 	return output, nil
 }
 
-func (g *grpcAdapter) Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error {
+func (g *GrpcAdapter) Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error {
 	sendBack := &ipc.ResultInclude{
 		Envelope: yes,
 		Body:     no,
 	}
+	// ID for the add operation
+	targetOpID := int64(42)
 
 	q := &ipc.QueryIn{
 		Events: &ipc.DomainStream{Domain: domain, Stream: stream},
@@ -185,6 +187,11 @@ func (g *grpcAdapter) Query(ctx context.Context, domain, stream string, query Wi
 				Op:    int64(index),
 				Style: sendBack,
 			})
+		}
+		//semantically, at least in some cases, if both of these are unset the system is expecting all within the kind
+		// to be queried for
+		if onKind.MatchSubset == nil && len(onKind.Eq) == 0 {
+			constraint.AllOp = &targetOpID
 		}
 	}
 
@@ -212,8 +219,7 @@ func (g *grpcAdapter) Query(ctx context.Context, domain, stream string, query Wi
 	return nil
 }
 
-func (g *grpcAdapter) QueryBatch(ctx context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error {
-	fmt.Printf("Query %#v\n", query)
+func (g *GrpcAdapter) QueryBatch(ctx context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error {
 	op := int64(42)
 	in := &ipc.QueryIn{
 		Events: &ipc.DomainStream{
@@ -271,7 +277,7 @@ func grpcMaybeWireOp(maybeOp *int) *int64 {
 	return &extended
 }
 
-func (g *grpcAdapter) QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error {
+func (g *GrpcAdapter) QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error {
 	in := &ipc.QueryIn{
 		Events: &ipc.DomainStream{
 			Domain: domain,
@@ -331,7 +337,7 @@ func (g *grpcAdapter) QueryBatchR2(ctx context.Context, domain, stream string, b
 	}
 }
 
-func (g *grpcAdapter) Meta(ctx context.Context) (WireMetaV1, error) {
+func (g *GrpcAdapter) Meta(ctx context.Context) (WireMetaV1, error) {
 	result := WireMetaV1{}
 
 	domains := make(map[string]*WireMetaDomainV1)

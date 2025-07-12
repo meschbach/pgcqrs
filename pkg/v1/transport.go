@@ -10,6 +10,9 @@ type Transport interface {
 	Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error)
 	GetEvent(ctx context.Context, domain, stream string, id int64, event interface{}) error
 	AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error)
+
+	// Query performs a query against the specified domain and stream, using the provided WireQuery for constraints and
+	// outputs the result.  This is a historic call site conforming to v1 query semantics.
 	Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error
 	QueryBatch(ctx context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error
 	QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error

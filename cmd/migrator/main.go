@@ -12,7 +12,7 @@ import (
 
 func main() {
 	migrationsDir := "migrations"
-	primaryStorageFile := pkg.EnvOrDefault("CFG_PRIMARY", "secrets/primary.json")
+	primaryStorageFile := pkg.EnvOrDefault("CFG_PRIMARY", "")
 
 	serve := cobra.Command{
 		Use:   "primary",
@@ -22,8 +22,13 @@ func main() {
 				Storage:      internal.Storage{},
 				MigrationDir: migrationsDir + "/primary",
 			}
-			if err := files.ParseJSONFile(primaryStorageFile, &cfg); err != nil {
-				return err
+			if primaryStorageFile != "" {
+				if err := files.ParseJSONFile(primaryStorageFile, &cfg); err != nil {
+					return err
+				}
+			}
+			if value := pkg.EnvOrDefault("PGCQRS_STORAGE_POSTGRES_URL", ""); value != "" {
+				cfg.Storage.Primary.DatabaseURL = value
 			}
 			return migrator.MigratePrimary(cmd.Context(), cfg)
 		},

@@ -7,6 +7,7 @@ import (
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/meschbach/pgcqrs/internal/junk"
+	"github.com/meschbach/pgcqrs/internal/junk/restful"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"github.com/thejerf/suture/v4"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
@@ -47,7 +48,10 @@ func (s *service) routes() http.Handler {
 		app := vars["app"]
 		stream := vars["stream"]
 
-		junk.Must(s.storage.ensureStream(request.Context(), app, stream))
+		if err := s.storage.ensureStream(request.Context(), app, stream); err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
 
 		bytes, err := json.Marshal(Result{Ok: true})
 		junk.Must(err)
@@ -129,6 +133,8 @@ func Serve(ctx context.Context, cfg Config) {
 		if err != nil {
 			panic(err)
 		}
+		connConfig := pool.Config().ConnConfig
+		fmt.Printf("Connected to database: user=%s host=%s database=%s\n", connConfig.User, connConfig.Host, connConfig.Database)
 		s.storage = &storage{pg: pool}
 		s.repository = storage2.RepositoryWithPool(pool)
 

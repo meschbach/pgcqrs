@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/go-junk-bucket/pkg/files"
-	"github.com/meschbach/pgcqrs/internal/junk"
 	"github.com/meschbach/pgcqrs/internal/service"
 	"github.com/spf13/cobra"
 	"os"
 )
 
 func main() {
-	primaryStorageFile := pkg.EnvOrDefault("CFG_PRIMARY", "secrets/primary.json")
+	primaryStorageFile := pkg.EnvOrDefault("CFG_PRIMARY", "")
 
 	serve := cobra.Command{
 		Use:   "serve",
@@ -19,7 +18,12 @@ func main() {
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg := service.Config{}
 			cfg.LoadDefaults()
-			junk.Must(files.ParseJSONFile(primaryStorageFile, &cfg))
+			if primaryStorageFile != "" {
+				err := files.ParseJSONFile(primaryStorageFile, &cfg)
+				if err != nil {
+					return err
+				}
+			}
 			cmdContext := cmd.Context()
 			service.Serve(cmdContext, cfg)
 			return nil

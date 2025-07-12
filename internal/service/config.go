@@ -19,6 +19,14 @@ func (c *Config) LoadDefaults() {
 		c.Listener = &ListenerConfig{}
 	}
 	c.Listener.LoadDefaults()
+	if c.GRPCListener == nil {
+		c.GRPCListener = &GRPCListenerConfig{}
+	}
+	c.GRPCListener.LoadDefaults()
+
+	if url := pkg.EnvOrDefault("PGCQRS_STORAGE_POSTGRES_URL", ""); url != "" {
+		c.Storage.Primary.DatabaseURL = url
+	}
 }
 
 type ListenerConfig struct {
@@ -38,6 +46,10 @@ type TLSConfig struct {
 type GRPCListenerConfig struct {
 	Address    string            `json:"address"`
 	ServicePKI *PKIServiceConfig `json:"service-pki,omitempty"`
+}
+
+func (g *GRPCListenerConfig) LoadDefaults() {
+	g.Address = pkg.EnvOrDefault("PGCQRS_GRPC_LISTENER_ADDRESS", "0.0.0.0:9001")
 }
 
 type PKIServiceConfig struct {

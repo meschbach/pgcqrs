@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"fmt"
+	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/pgcqrs/internal/junk"
 )
 
@@ -20,6 +21,24 @@ type Config struct {
 	ServiceURL string `json:"service-url"`
 }
 
+func NewConfig() *Config {
+	cfg := &Config{}
+	cfg.ServiceURL = "http://localhost:9000"
+	cfg.TransportType = TransportTypeHTTP
+	return cfg
+}
+
+func (c *Config) LoadEnv() *Config {
+	return c.LoadEnvWithPrefix("")
+}
+
+func (c *Config) LoadEnvWithPrefix(prefix string) *Config {
+	c.ServiceURL = pkg.EnvOrDefault(prefix+"PGCQRS_SERVICE_URL", c.ServiceURL)
+	c.TransportType = pkg.EnvOrDefault(prefix+"PGCQRS_SERVICE_TRANSPORT", c.TransportType)
+	fmt.Printf("Using %q for service transport\n", c.TransportType)
+	return c
+}
+
 func (c *Config) SystemFromConfig() (*System, error) {
 	var physical Transport
 	switch c.TransportType {
@@ -31,7 +50,7 @@ func (c *Config) SystemFromConfig() (*System, error) {
 		physical = NewHttpTransport(c.ServiceURL)
 	case TransportTypeGRPC:
 		var err error
-		physical, err = newGrpcAdapter(c.ServiceURL)
+		physical, err = NewGRPCTransport(c.ServiceURL)
 		if err != nil {
 			return nil, err
 		}

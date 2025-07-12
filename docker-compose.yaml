@@ -1,0 +1,47 @@
+version: '3.8'
+
+services:
+  postgres:
+    image: postgres:13
+    restart: always
+    environment:
+      POSTGRES_DB: pgcqrs
+      POSTGRES_USER: user
+      POSTGRES_PASSWORD: password
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+  migrator:
+    build:
+      context: .
+      dockerfile: cmd/migrator/Dockerfile
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    environment:
+      PGCQRS_STORAGE_POSTGRES_URL: user:password@postgres:5432/pgcqrs?sslmode=disable
+    depends_on:
+      - postgres
+    command: ["primary"]
+
+  pgcqrs:
+    build:
+      context: .
+      dockerfile: cmd/service/Dockerfile
+      args:
+        BUILDKIT_INLINE_CACHE: 1
+    restart: always
+    environment:
+      PGCQRS_STORAGE_POSTGRES_URL: user:password@postgres:5432/pgcqrs?sslmode=disable
+      PGCQRS_LISTENER_ADDRESS: 0.0.0.0:9000
+      PGCQRS_GRPC_LISTENER_ADDRESS: 0.0.0.0:9001
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    depends_on:
+      migrator:
+        condition: service_completed_successfully
+
+volumes:
+  postgres_data:

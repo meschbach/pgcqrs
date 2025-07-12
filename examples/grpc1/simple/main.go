@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"github.com/meschbach/go-junk-bucket/pkg"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"time"
 )
@@ -15,15 +16,15 @@ type Event struct {
 }
 
 func main() {
+	url := pkg.EnvOrDefault("PGCQRS_URL", "localhost:9001")
+
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
-
-	cfg := v1.NewConfig().LoadEnv()
-	sys, err := cfg.SystemFromConfig()
+	transport, err := v1.NewGRPCTransport(url)
 	if err != nil {
 		panic(err)
 	}
-
+	sys := v1.NewSystem(transport)
 	stream := sys.MustStream(ctx, app, stream)
 	reply := stream.MustSubmit(ctx, "general", &Event{First: true})
 

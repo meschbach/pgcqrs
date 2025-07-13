@@ -25,6 +25,26 @@ func randInt() int {
 	return values[0]
 }
 
+func uniqueRandomInts(count int) []int {
+	output := make([]int, 0, count)
+	grouping := make(map[int]bool)
+	retry := 0
+	for len(output) < count {
+		value := randInt()
+		if _, has := grouping[value]; !has {
+			grouping[value] = true
+			output = append(output, value)
+			retry = 0
+		} else {
+			retry++
+			if retry > 8 {
+				panic("too many retries")
+			}
+		}
+	}
+	return output
+}
+
 func main() {
 	streamName := stream + strconv.FormatInt(time.Now().Unix(), 36)
 	fmt.Printf("Using %q for stream\n", streamName)
@@ -39,15 +59,16 @@ func main() {
 	}
 
 	stream := sys.MustStream(ctx, app, streamName)
+	randInts := uniqueRandomInts(4)
+	target := randInts[0]
 
 	kind1 := faker.Word()
-	target := randInt()
 	kind2 := faker.Word()
 	kind3 := faker.Word()
-	stream.MustSubmit(ctx, kind1, &Event{Value: randInt()})
+	stream.MustSubmit(ctx, kind1, &Event{Value: randInts[1]})
 	expectedResult := stream.MustSubmit(ctx, kind2, &Event{Value: target})
-	stream.MustSubmit(ctx, kind2, &Event{Value: randInt()})
-	stream.MustSubmit(ctx, kind3, &Event{Value: randInt()})
+	stream.MustSubmit(ctx, kind2, &Event{Value: randInts[2]})
+	stream.MustSubmit(ctx, kind3, &Event{Value: randInts[3]})
 	stream.MustSubmit(ctx, kind3, &Event{Value: target})
 
 	query := stream.Query()

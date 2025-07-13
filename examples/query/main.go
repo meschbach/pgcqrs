@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"os"
 	"strconv"
@@ -35,14 +35,17 @@ func main() {
 	}
 	stream := sys.MustStream(ctx, app, streamName)
 
-	kind1 := faker.Word()
-	target := faker.Word()
-	kind2 := faker.Word()
-	kind3 := faker.Word()
-	stream.MustSubmit(ctx, kind1, &Event{Word: faker.Word()})
+	kinds := faking.NewUniqueWords()
+	values := faking.NewUniqueWords()
+	target := values.Next()
+
+	kind1 := kinds.Next()
+	kind2 := kinds.Next()
+	kind3 := kinds.Next()
+	stream.MustSubmit(ctx, kind1, &Event{Word: values.Next()})
 	stream.MustSubmit(ctx, kind2, &Event{Word: target})
-	stream.MustSubmit(ctx, kind2, &Event{Word: faker.Word()})
-	stream.MustSubmit(ctx, kind3, &Event{Word: faker.Word()})
+	stream.MustSubmit(ctx, kind2, &Event{Word: values.Next()})
+	stream.MustSubmit(ctx, kind3, &Event{Word: values.Next()})
 	stream.MustSubmit(ctx, kind3, &Event{Word: target})
 
 	query := stream.Query()

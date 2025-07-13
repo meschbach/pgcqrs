@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"os"
 	"strconv"
@@ -12,59 +12,6 @@ import (
 
 const app = "example.query-batch"
 const stream = "batch-stream"
-
-type uniqueDomain[T comparable] struct {
-	grouping map[T]bool
-	gen      func() T
-}
-
-func newUniqueDomain[T comparable](gen func() T) *uniqueDomain[T] {
-	return &uniqueDomain[T]{
-		grouping: make(map[T]bool),
-		gen:      gen,
-	}
-}
-
-func (u *uniqueDomain[T]) Next() T {
-	retry := 0
-	for {
-		value := u.gen()
-		if _, has := u.grouping[value]; !has {
-			u.grouping[value] = true
-			return value
-		}
-		retry++
-		if retry >= 8 {
-			panic("too many retries")
-		}
-	}
-}
-
-func uniqueRandom[T comparable](gen func() T, count int) []T {
-	output := make([]T, 0, count)
-	grouping := make(map[T]bool)
-	retry := 0
-	for len(output) < count {
-		value := gen()
-		if _, has := grouping[value]; !has {
-			grouping[value] = true
-			output = append(output, value)
-			retry = 0
-		} else {
-			retry++
-			if retry > 8 {
-				panic("too many retries")
-			}
-		}
-	}
-	return output
-}
-
-func newUniqueWords() *uniqueDomain[string] {
-	return newUniqueDomain(func() string {
-		return faker.Word()
-	})
-}
 
 type Event struct {
 	Word string `json:"word"`
@@ -85,8 +32,8 @@ func main() {
 
 	stream := sys.MustStream(ctx, app, streamName)
 
-	kinds := newUniqueWords()
-	words := newUniqueWords()
+	kinds := faking.NewUniqueWords()
+	words := faking.NewUniqueWords()
 
 	kind1 := kinds.Next()
 	target := words.Next()

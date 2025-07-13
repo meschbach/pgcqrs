@@ -3,7 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"os"
 	"strconv"
@@ -25,10 +25,11 @@ func main() {
 	streamName := stream + strconv.FormatInt(time.Now().Unix(), 36)
 	fmt.Printf("Using %q for stream\n", streamName)
 
-	kind1 := faker.Name()
-	kind2 := faker.Name()
-	kind3 := faker.Name()
-	kind4 := faker.Name()
+	kinds := faking.NewUniqueWords()
+	kind1 := kinds.Next()
+	kind2 := kinds.Next()
+	kind3 := kinds.Next()
+	kind4 := kinds.Next()
 
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()

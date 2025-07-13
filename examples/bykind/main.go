@@ -17,7 +17,7 @@ type Event struct {
 	First bool `json:"first"`
 }
 
-// main defins an example client which validates v1 query behavior of locating all documents within a stream by ID.
+// main defines an example client which validates v1 query behavior of locating all documents within a stream by ID.
 //
 // * will create a new stream for each iteration, deconflicted by the current time as base36 encoded.
 // * Creates events of several different kinds to ensure we only find matching events.

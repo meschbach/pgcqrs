@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-faker/faker/v4"
-	"github.com/meschbach/go-junk-bucket/pkg"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
+	"os"
 	"strconv"
 	"time"
 )
@@ -14,18 +14,25 @@ const app = "example.bykind"
 const stream = "kindstream"
 
 type Event struct {
+	//Word is teh matched field for our target.
 	Word string `json:"word"`
 }
 
+// main defines a test program for verifying a v1 query is able to match a specific field on the target entity.
+//
+// * will create a new stream for each iteration, deconflicted by the current time as base36 encoded.
+// * Creates events of several different kinds with both matching and non-matching events.
 func main() {
 	streamName := stream + strconv.FormatInt(time.Now().Unix(), 36)
 	fmt.Printf("Using %q for stream\n", streamName)
 
-	url := pkg.EnvOrDefault("PGCQRS_URL", "http://localhost:9000")
-
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
-	sys := v1.NewSystem(v1.NewHttpTransport(url))
+	cfg := v1.NewConfig().LoadEnv()
+	sys, err := cfg.SystemFromConfig()
+	if err != nil {
+		panic(err)
+	}
 	stream := sys.MustStream(ctx, app, streamName)
 
 	kind1 := faker.Word()
@@ -45,10 +52,15 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("%v\n", result.Envelopes())
+	envelopes := result.Envelopes()
+	fmt.Printf("%v\n", envelopes)
 
 	result, err = query.Perform(ctx)
 	if err != nil {
 		panic(err)
+	}
+	if len(envelopes) != 1 {
+		fmt.Printf("FAILED -- expected a single envelope got %d\n", len(envelopes))
+		os.Exit(-1)
 	}
 }

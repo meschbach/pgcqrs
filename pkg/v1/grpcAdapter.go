@@ -174,6 +174,11 @@ func (g *GrpcAdapter) Query(ctx context.Context, domain, stream string, query Wi
 		//not dealing with specific property equality right now
 		if onKind.Eq != nil {
 			filtered = false
+			constraint := &ipc.OnKindClause{
+				Kind:  onKind.Kind,
+				AllOp: &targetOpID,
+			}
+			q.OnKind = append(q.OnKind, constraint)
 			continue
 		}
 
@@ -200,7 +205,7 @@ func (g *GrpcAdapter) Query(ctx context.Context, domain, stream string, query Wi
 		return err
 	}
 	out.Filtered = filtered
-	out.SubsetMatch = true
+	out.SubsetMatch = filtered
 	for {
 		event, err := result.Recv()
 		if err != nil {

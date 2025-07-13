@@ -4,8 +4,8 @@ import (
 	"context"
 	"fmt"
 	"github.com/go-faker/faker/v4"
-	"github.com/meschbach/go-junk-bucket/pkg"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
+	"os"
 	"strconv"
 	"time"
 )
@@ -29,11 +29,15 @@ func main() {
 	streamName := stream + strconv.FormatInt(time.Now().Unix(), 36)
 	fmt.Printf("Using %q for stream\n", streamName)
 
-	url := pkg.EnvOrDefault("PGCQRS_URL", "http://localhost:9000")
-
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
-	sys := v1.NewSystem(v1.NewHttpTransport(url))
+
+	cfg := v1.NewConfig().LoadEnv()
+	sys, err := cfg.SystemFromConfig()
+	if err != nil {
+		panic(err)
+	}
+
 	stream := sys.MustStream(ctx, app, streamName)
 
 	kind1 := faker.Word()
@@ -63,5 +67,17 @@ func main() {
 	result, err = query.Perform(ctx)
 	if err != nil {
 		panic(err)
+	}
+	envelopes := result.Envelopes()
+	fmt.Printf("Received %#v\n", result.Envelopes())
+	if len(envelopes) != 1 {
+		fmt.Printf("FAILED -- expected a single envelope got %d\n", len(envelopes))
+		os.Exit(-1)
+	}
+	fmt.Printf("Received %#v\n", envelopes[0])
+	if envelopes[0].ID == expectedResult.ID {
+		fmt.Println("Success")
+	} else {
+		fmt.Println("Failure")
 	}
 }

@@ -13,3 +13,4 @@ export PGCQRS_SERVICE_TRANSPORT="grpc"
 go run ./examples/simple
 go run ./examples/bykind
 go run ./examples/query
+go run ./examples/queryInt

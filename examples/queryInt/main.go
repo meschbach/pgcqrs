@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"os"
@@ -14,45 +13,25 @@ import (
 const app = "example.query"
 const stream = "match-int-"
 
+// Event is an example document for a subset match.
 type Event struct {
 	Value int `json:"id"`
 }
 
-func randInt() int {
-	values, err := faker.RandomInt(-10000, 10000, 1)
-	if err != nil {
-		panic(err)
-	}
-	return values[0]
-}
-
-func uniqueRandomInts(count int) []int {
-	output := make([]int, 0, count)
-	grouping := make(map[int]bool)
-	retry := 0
-	for len(output) < count {
-		value := randInt()
-		if _, has := grouping[value]; !has {
-			grouping[value] = true
-			output = append(output, value)
-			retry = 0
-		} else {
-			retry++
-			if retry > 8 {
-				panic("too many retries")
-			}
-		}
-	}
-	return output
-}
-
+// main is an example showing how to match a document via a document subset match.
 func main() {
-	streamName := stream + strconv.FormatInt(time.Now().Unix(), 36)
-	fmt.Printf("Using %q for stream\n", streamName)
-
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
 
+	//
+	// Fixtures for this test
+	//
+	streamName := stream + strconv.FormatInt(time.Now().Unix(), 36)
+	fmt.Printf("Using %q for stream\n", streamName)
+
+	//
+	// Configure a connection with the target system.
+	//
 	cfg := v1.NewConfig().LoadEnv()
 	sys, err := cfg.SystemFromConfig()
 	if err != nil {
@@ -61,6 +40,9 @@ func main() {
 
 	stream := sys.MustStream(ctx, app, streamName)
 
+	//
+	// Given seed data in the data store
+	//
 	kinds := faking.NewUniqueWords()
 	values := faking.NewUniqueInts()
 	target := values.Next()
@@ -74,6 +56,9 @@ func main() {
 	stream.MustSubmit(ctx, kind3, &Event{Value: values.Next()})
 	stream.MustSubmit(ctx, kind3, &Event{Value: target})
 
+	//
+	// When we query for a matching document
+	//
 	query := stream.Query()
 	query.WithKind(kind2).Match(Event{Value: target})
 	result, err := query.Perform(ctx)
@@ -81,17 +66,9 @@ func main() {
 		panic(err)
 	}
 
-	fmt.Printf("%v\n", result.Envelopes())
-	if result.Envelopes()[0].ID == expectedResult.ID {
-		fmt.Println("Success")
-	} else {
-		fmt.Println("Failure")
-	}
-
-	result, err = query.Perform(ctx)
-	if err != nil {
-		panic(err)
-	}
+	//
+	// Then we receive teh expected event
+	//
 	envelopes := result.Envelopes()
 	fmt.Printf("Received %#v\n", result.Envelopes())
 	if len(envelopes) != 1 {

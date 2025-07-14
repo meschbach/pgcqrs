@@ -13,17 +13,24 @@ import (
 const app = "example.query-batch"
 const stream = "batch-stream"
 
+// Event describes the example document for a match
 type Event struct {
 	Word string `json:"word"`
 }
 
 func main() {
-	streamName := stream + strconv.FormatInt(time.Now().Unix(), 36)
-	fmt.Printf("Using %q for stream\n", streamName)
-
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
 
+	//
+	// Fixtures for this test
+	//
+	streamName := stream + strconv.FormatInt(time.Now().Unix(), 36)
+	fmt.Printf("Using %q for stream\n", streamName)
+
+	//
+	// Configure a connection with the target system.
+	//
 	cfg := v1.NewConfig().LoadEnv()
 	sys, err := cfg.SystemFromConfig()
 	if err != nil {
@@ -32,6 +39,9 @@ func main() {
 
 	stream := sys.MustStream(ctx, app, streamName)
 
+	//
+	// Given seed data in the data store
+	//
 	kinds := faking.NewUniqueWords()
 	words := faking.NewUniqueWords()
 
@@ -45,6 +55,9 @@ func main() {
 	stream.MustSubmit(ctx, kind3, &Event{Word: words.Next()})
 	stream.MustSubmit(ctx, kind3, &Event{Word: target})
 
+	//
+	// When we query for a matching document of a specific kind
+	//
 	var outEvents []Event
 	var outEnvelopes []v1.Envelope
 	query := stream.Query()
@@ -56,6 +69,9 @@ func main() {
 		panic(err)
 	}
 
+	//
+	// Then we receive teh expected event
+	//
 	if len(outEnvelopes) != 1 {
 		fmt.Printf("FAILED -- expected a single envelope got %d\n%#v\n", len(outEnvelopes), outEnvelopes)
 		os.Exit(-1)

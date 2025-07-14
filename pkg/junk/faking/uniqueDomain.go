@@ -29,6 +29,11 @@ func (u *UniqueDomain[T]) Next() T {
 	}
 }
 
+func (u *UniqueDomain[T]) NextPtr() *T {
+	value := u.Next()
+	return &value
+}
+
 func NewUniqueWords() *UniqueDomain[string] {
 	return NewUniqueDomain(func() string {
 		return faker.Word()

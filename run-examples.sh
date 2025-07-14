@@ -15,3 +15,4 @@ go run ./examples/bykind
 go run ./examples/query
 go run ./examples/queryInt
 go run ./examples/queryBatch
+go run ./examples/query2

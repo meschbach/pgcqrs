@@ -6,6 +6,10 @@ with the system.
 * [simple](simple): Shows entering and retrieving events.
 * [By Kind](bykind): v1 Query to retrieve all events by a specific kind.
 
+## Query Version 2
+
+* [query2](query2): An example of using the query2 interface to match a subset of keys within an event
+
 ## Query Version 1
 In Query Version 1 clients query for properties of documents in two forms: individual property matches and example
 documents.  Each will return a set of envelopes which may be individually queried for the values.

@@ -23,6 +23,7 @@ type matchEventWord struct {
 	Word string `json:"word"`
 }
 
+// main provides an example of matching a subset of documents via the query2 interface.
 func main() {
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()

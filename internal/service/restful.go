@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"github.com/gorilla/mux"
 	"github.com/meschbach/pgcqrs/internal/junk/restful"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
@@ -87,7 +86,7 @@ func (s *service) v1QueryBatchR2Route() http.HandlerFunc {
 
 		operations := storage2.TranslateBatchR2(ctx, app, stream, &query)
 		if len(operations) == 0 {
-			restful.ClientError(writer, request, errors.New("no known operations provided"))
+			restful.Ok(writer, request, v1.WireBatchR2Result{})
 			return
 		}
 		eventsStream, runStream, err := s.repository.Stream(ctx, operations)

@@ -179,6 +179,101 @@ func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 	return errors.Join(run.problem, translator.problem)
 }
 
+func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
+	var ops []storage2.Operation
+
+	for _, kClause := range in.OnKind {
+		if kClause.AllOp != nil {
+			ops = append(ops, &storage2.EachKind{
+				App:    in.Events.Domain,
+				Stream: in.Events.Stream,
+				Op:     int(*kClause.AllOp),
+				Kind:   kClause.Kind,
+			})
+		}
+		for _, subsetClause := range kClause.Subsets {
+			ops = append(ops, &storage2.MatchSubset{
+				App:    in.Events.Domain,
+				Stream: in.Events.Stream,
+				Op:     int(subsetClause.Op),
+				Kind:   kClause.Kind,
+				Subset: subsetClause.Match,
+			})
+		}
+	}
+	for _, idClause := range in.OnID {
+		op := storage2.WithMatchID(in.Events.Domain, in.Events.Stream, idClause.Id, int(idClause.Op))
+		ops = append(ops, op)
+	}
+	if eachClause := in.OnEach; eachClause != nil {
+		op := &storage2.AllStreamEvents{
+			Domain: in.Events.Domain,
+			Stream: in.Events.Stream,
+			Op:     int(eachClause.Op),
+		}
+		ops = append(ops, op)
+	}
+
+	if len(ops) == 0 {
+		return nil
+	}
+
+	results, start, err := g.core.Stream(out.Context(), ops)
+	if err != nil {
+		return err
+	}
+
+	type translateResult struct {
+		problem error
+	}
+	translateOut := make(chan translateResult, 1)
+	go func() {
+		defer close(translateOut)
+		onError := func(err error) {
+			translateOut <- translateResult{problem: err}
+			//discard all remaining results
+			for range results {
+			}
+		}
+		for r := range results {
+			//todo(optimization): we are translating from PG's time to a string to gRPC.  PG gives us a time.Time.
+			whenTime, err := time.Parse(time.RFC3339Nano, r.Envelope.When)
+			if err != nil {
+				onError(err)
+				return
+			}
+			if err := out.Send(&ipc.QueryOut{
+				Op: int64(r.Op),
+				Id: &r.Envelope.ID,
+				Envelope: &ipc.MaterializedEnvelope{
+					Id:   r.Envelope.ID,
+					When: timestamppb.New(whenTime),
+					Kind: r.Envelope.Kind,
+				},
+				Body: r.Event,
+			}); err != nil {
+				onError(err)
+				return
+			}
+		}
+	}()
+
+	type runResult struct {
+		count   int
+		problem error
+	}
+	runOut := make(chan runResult, 1)
+	go func() {
+		count, err := start(out.Context())
+		runOut <- runResult{count, err}
+		close(runOut)
+	}()
+
+	run := <-runOut
+	translator := <-translateOut
+	return errors.Join(run.problem, translator.problem)
+}
+
 // grpcPort exports a Command and Query grpc with the specified configuration
 type grpcPort struct {
 	config  *GRPCListenerConfig

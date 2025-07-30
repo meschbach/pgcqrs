@@ -3,7 +3,9 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/meschbach/pgcqrs/pkg/v1/local"
+	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
 )
 
@@ -27,8 +29,9 @@ type memoryDomain struct {
 }
 
 type memoryStream struct {
-	name    string
-	packets []memoryPacket
+	name        string
+	packets     []memoryPacket
+	onAddPacket []func(int64)
 }
 
 type memoryPacket struct {
@@ -105,11 +108,15 @@ func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event 
 		stream := m.domains[domain].streams[stream]
 
 		out = int64(len(stream.packets))
-		stream.packets = append(stream.packets, memoryPacket{
+		packet := memoryPacket{
 			kind: kind,
 			when: time.Now(),
 			data: bytes,
-		})
+		}
+		stream.packets = append(stream.packets, packet)
+		for _, onAdd := range stream.onAddPacket {
+			onAdd(out)
+		}
 	}}); err != nil {
 		return nil, nil
 	}
@@ -260,4 +267,130 @@ func (m *memory) QueryBatchR2(parent context.Context, domain, stream string, que
 		}
 	}
 	return nil
+}
+
+func (m *memory) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+	output := make(chan ipc.QueryOut, 128)
+
+	go func() {
+		defer close(output)
+		changes := make(chan int64, 128)
+		defer close(changes)
+		m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+			stream := m.domains[query.Events.Domain].streams[query.Events.Stream]
+			stream.onAddPacket = append(stream.onAddPacket, func(id int64) {
+				changes <- id
+			})
+		}})
+
+		send := func(op int64, e Envelope, body json.RawMessage) {
+			whenTime, err := time.Parse(time.StampMilli, e.When)
+			if err != nil {
+				panic(err)
+			}
+			output <- ipc.QueryOut{
+				Op: op,
+				Id: &e.ID,
+				Envelope: &ipc.MaterializedEnvelope{
+					Id:   e.ID,
+					When: timestamppb.New(whenTime), //todo: fix
+					Kind: e.Kind,
+				},
+				Body: body,
+			}
+		}
+
+		maybeSend := func(e Envelope) error {
+			for _, onKind := range query.OnKind {
+				if onKind.Kind == e.Kind {
+					if onKind.AllOp != nil {
+						var data json.RawMessage
+						if err := m.GetEvent(ctx, query.Events.Domain, query.Events.Stream, e.ID, &data); err != nil {
+							return err
+						}
+						send(*onKind.AllOp, e, data)
+					}
+					for _, match := range onKind.Subsets {
+						var data json.RawMessage
+						if err := m.GetEvent(ctx, query.Events.Domain, query.Events.Stream, e.ID, &data); err != nil {
+							return err
+						}
+						if local.JSONIsSubset(data, match.Match) {
+							send(match.Op, e, data)
+						}
+					}
+				}
+			}
+			return nil
+		}
+		pastEvents := func() error {
+			envelopes, err := m.AllEnvelopes(ctx, query.Events.Domain, query.Events.Stream)
+			if err != nil {
+				return err
+			}
+			for _, e := range envelopes {
+				if err := maybeSend(e); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+
+		err := pastEvents()
+		if err != nil {
+			panic(err)
+		}
+
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case id := <-changes:
+				envelopes, err := m.AllEnvelopes(ctx, query.Events.Domain, query.Events.Stream)
+				if err != nil {
+					panic(err)
+				}
+
+				if err := maybeSend(envelopes[id]); err != nil {
+					panic(err)
+				}
+			}
+		}
+	}()
+	return output, nil
+
+	//
+	//for _, e := range envelopes {
+	//	for _, onKind := range query.OnKind {
+	//		if onKind.Kind == e.Kind {
+	//			for _, match := range onKind.Match {
+	//				var data json.RawMessage
+	//				if err := m.GetEvent(parent, domain, stream, e.ID, &data); err != nil {
+	//					return nil, err
+	//				}
+	//				if local.JSONIsSubset(data, match.Subset) {
+	//					out.Results = append(out.Results, WireBatchR2Dispatch{
+	//						Envelope: e,
+	//						Event:    data,
+	//						Op:       match.Op,
+	//					})
+	//				}
+	//			}
+	//		}
+	//	}
+	//	for _, onID := range query.OnID {
+	//		if e.ID == onID.ID {
+	//			var data json.RawMessage
+	//			if err := m.GetEvent(parent, domain, stream, e.ID, &data); err != nil {
+	//				return nil, err
+	//			}
+	//			out.Results = append(out.Results, WireBatchR2Dispatch{
+	//				Envelope: e,
+	//				Event:    data,
+	//				Op:       onID.Op,
+	//			})
+	//		}
+	//	}
+	//}
+	//return nil
 }

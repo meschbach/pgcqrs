@@ -4,7 +4,9 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/codes"
 	"net/http"
@@ -177,6 +179,10 @@ func (c *HttpTransportLayer) QueryBatch(parent context.Context, domain, stream s
 func (c *HttpTransportLayer) QueryBatchR2(parent context.Context, domain, stream string, query *WireBatchR2Request, out *WireBatchR2Result) error {
 	url := "/v1/app/" + domain + "/" + stream + "/query-batch-r2"
 	return c.post(parent, "query-batch-r2", url, query, out)
+}
+
+func (c *HttpTransportLayer) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+	return nil, errors.New("not implemented")
 }
 
 func (c *HttpTransportLayer) Meta(parent context.Context) (WireMetaV1, error) {

@@ -29,6 +29,8 @@ service Query {
    * which will return a set of QueryOut events.
    */
   rpc Query(QueryIn) returns (stream QueryOut);
+
+  rpc Watch(QueryIn) returns (stream QueryOut);
 }
 
 message CreateStreamIn {

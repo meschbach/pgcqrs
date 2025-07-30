@@ -3,6 +3,7 @@ package query2
 import (
 	"context"
 	"encoding/json"
+	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
@@ -41,6 +42,31 @@ func (k *KindClause) prepareRequest(ctx context.Context, r *v1.WireBatchR2Reques
 	return nil
 }
 
+func (k *KindClause) prepareQuery(ctx context.Context, r *ipc.QueryIn, registry *handlers) error {
+	wire := &ipc.OnKindClause{
+		Kind: k.kind,
+	}
+	if all := registry.registerOptional(k.each); all != nil {
+		allInt64 := int64(*all)
+		wire.AllOp = &allInt64
+		if wire.AllOp != nil {
+			truthy := true
+			wire.AllOpConfig = &ipc.ResultInclude{
+				Envelope: &truthy,
+				Body:     &truthy,
+			}
+		}
+	}
+
+	for _, m := range k.matched {
+		if err := m.prepareQuery(ctx, wire, registry); err != nil {
+			return err
+		}
+	}
+	r.OnKind = append(r.OnKind, wire)
+	return nil
+}
+
 type MatchedKind struct {
 	processor v1.OnStreamQueryResult
 	subset    interface{}
@@ -61,6 +87,21 @@ func (m *MatchedKind) prepareRequest(ctx context.Context, r *v1.WireBatchR2KindQ
 	r.Match = append(r.Match, v1.WireBatchR2KindMatch{
 		Op:     registry.register(m.processor),
 		Subset: doc,
+	})
+	return nil
+}
+
+func (m *MatchedKind) prepareQuery(ctx context.Context, r *ipc.OnKindClause, registry *handlers) error {
+	if m.processor == nil {
+		return nil
+	}
+	doc, err := json.Marshal(m.subset)
+	if err != nil {
+		return err
+	}
+	r.Subsets = append(r.Subsets, &ipc.OnKindSubsetMatch{
+		Match: doc,
+		Op:    int64(registry.register(m.processor)),
 	})
 	return nil
 }

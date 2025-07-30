@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"github.com/meschbach/pgcqrs/pkg/ipc"
 )
 
 type postProcessingHandlers struct {
@@ -59,13 +60,19 @@ func (s *Stream) performBatchQuery(ctx context.Context, query WireQuery) (WireBa
 }
 
 func EntityFunc[T any](apply func(ctx context.Context, e Envelope, entity T)) OnStreamQueryResult {
+	return EntityFuncE(func(ctx context.Context, e Envelope, entity T) error {
+		apply(ctx, e, entity)
+		return nil
+	})
+}
+
+func EntityFuncE[T any](apply func(ctx context.Context, e Envelope, entity T) error) OnStreamQueryResult {
 	return func(ctx context.Context, e Envelope, rawJSON json.RawMessage) error {
 		var t T
 		if err := json.Unmarshal(rawJSON, &t); err != nil {
 			return err
 		}
-		apply(ctx, e, t)
-		return nil
+		return apply(ctx, e, t)
 	}
 }
 
@@ -76,4 +83,13 @@ func (s *Stream) QueryBatchR2(ctx context.Context, batch *WireBatchR2Request) (*
 		return nil, err
 	}
 	return out, nil
+}
+
+// todo: relocate
+func (s *Stream) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+	query.Events = &ipc.DomainStream{
+		Domain: s.domain,
+		Stream: s.stream,
+	}
+	return s.system.Transport.Watch(ctx, query)
 }

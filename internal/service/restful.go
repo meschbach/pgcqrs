@@ -141,6 +141,7 @@ func (s *service) v1QueryAllEnvelopes() http.HandlerFunc {
 
 func (s *service) v1SubmitByKind() http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
+		ctx := request.Context()
 		vars := mux.Vars(request)
 		app := vars["app"]
 		stream := vars["stream"]
@@ -152,12 +153,14 @@ func (s *service) v1SubmitByKind() http.HandlerFunc {
 			return
 		}
 
-		id, err := s.storage.unsafeStore(request.Context(), app, stream, kind, all)
+		id, err := s.storage.unsafeStore(ctx, app, stream, kind, all)
 		if err != nil {
 			restful.InternalError(writer, request, err)
 			return
 		}
 		restful.Ok(writer, request, v1.SubmitReply{Id: id})
+
+		s.bus.dispatchOnEventStored(ctx, app, stream, id, kind, all)
 	}
 }
 

@@ -23,6 +23,7 @@ type grpcCommand struct {
 	ipc.UnimplementedCommandServer
 	oldCore *storage
 	core    *storage2.Repository
+	bus     *bus
 }
 
 func (g *grpcCommand) CreateStream(ctx context.Context, in *ipc.CreateStreamIn) (*ipc.CreateStreamOut, error) {
@@ -35,6 +36,7 @@ func (g *grpcCommand) Submit(ctx context.Context, in *ipc.SubmitIn) (*ipc.Submit
 	if err != nil {
 		return nil, err
 	}
+	g.bus.dispatchOnEventStored(ctx, in.Events.Domain, in.Events.Stream, id, in.Kind, in.Body)
 	return &ipc.SubmitOut{
 		Id:    id,
 		State: &ipc.Consistency{After: id},
@@ -45,6 +47,7 @@ type grpcQuery struct {
 	ipc.UnimplementedQueryServer
 	oldCore *storage
 	core    *storage2.Repository
+	bus     *bus
 }
 
 func (g *grpcQuery) ListStreams(ctx context.Context, in *ipc.ListStreamsIn) (*ipc.ListStreamsOut, error) {
@@ -180,6 +183,7 @@ func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 }
 
 func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
+	ctx := out.Context()
 	var ops []storage2.Operation
 
 	for _, kClause := range in.OnKind {
@@ -218,60 +222,69 @@ func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 		return nil
 	}
 
-	results, start, err := g.core.Stream(out.Context(), ops)
-	if err != nil {
-		return err
-	}
+	//
+	// translator will send contents of results to the target client
+	//
+	results := make(chan storage2.OperationResult, 128)
+	translateOut := make(chan error, 1)
+	stream := &grpcResultStream{out: out}
+	go stream.runTranslator(ctx, results, translateOut)
 
-	type translateResult struct {
-		problem error
+	//
+	// Watch messages
+	//
+	queryAgain := make(chan interface{}, 1)
+	queryAgain <- nil
+	listener := func(ctx context.Context, storage EventStorageEvent) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case queryAgain <- nil:
+			return nil
+		}
 	}
-	translateOut := make(chan translateResult, 1)
-	go func() {
-		defer close(translateOut)
-		onError := func(err error) {
-			translateOut <- translateResult{problem: err}
-			//discard all remaining results
-			for range results {
-			}
-		}
-		for r := range results {
-			//todo(optimization): we are translating from PG's time to a string to gRPC.  PG gives us a time.Time.
-			whenTime, err := time.Parse(time.RFC3339Nano, r.Envelope.When)
-			if err != nil {
-				onError(err)
-				return
-			}
-			if err := out.Send(&ipc.QueryOut{
-				Op: int64(r.Op),
-				Id: &r.Envelope.ID,
-				Envelope: &ipc.MaterializedEnvelope{
-					Id:   r.Envelope.ID,
-					When: timestamppb.New(whenTime),
-					Kind: r.Envelope.Kind,
-				},
-				Body: r.Event,
-			}); err != nil {
-				onError(err)
-				return
-			}
-		}
-	}()
+	watcher := g.bus.onEventStorage.addListener(listener)
+	defer g.bus.onEventStorage.removeListener(watcher)
 
 	type runResult struct {
 		count   int
 		problem error
 	}
-	runOut := make(chan runResult, 1)
-	go func() {
-		count, err := start(out.Context())
-		runOut <- runResult{count, err}
-		close(runOut)
-	}()
 
-	run := <-runOut
-	translator := <-translateOut
-	return errors.Join(run.problem, translator.problem)
+	for {
+		select {
+		case <-ctx.Done():
+			translator := <-translateOut
+			return errors.Join(translator, ctx.Err())
+		case <-queryAgain:
+			queryResults, start, err := g.core.Stream(out.Context(), ops)
+			if err != nil {
+				return err
+			}
+
+			go func() {
+				for r := range queryResults {
+					results <- r
+				}
+			}()
+
+			runOut := make(chan runResult, 1)
+			go func() {
+				count, err := start(out.Context())
+				runOut <- runResult{count, err}
+				close(runOut)
+			}()
+			select {
+			case <-ctx.Done():
+				//todo:determine errors blocking
+				return ctx.Err()
+			case runErr := <-runOut:
+				if runErr.problem != nil {
+					return runErr.problem
+				}
+			}
+		}
+	}
 }
 
 // grpcPort exports a Command and Query grpc with the specified configuration
@@ -279,6 +292,7 @@ type grpcPort struct {
 	config  *GRPCListenerConfig
 	oldCore *storage
 	core    *storage2.Repository
+	bus     *bus
 }
 
 func (g *grpcPort) Serve(ctx context.Context) error {
@@ -304,10 +318,12 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 	ipc.RegisterCommandServer(service, &grpcCommand{
 		oldCore: g.oldCore,
 		core:    g.core,
+		bus:     g.bus,
 	})
 	ipc.RegisterQueryServer(service, &grpcQuery{
 		oldCore: g.oldCore,
 		core:    g.core,
+		bus:     g.bus,
 	})
 
 	//

@@ -25,4 +25,4 @@ go run ./examples/query
 go run ./examples/queryInt
 go run ./examples/queryBatch
 go run ./examples/query2
-#go run ./examples/watch
+go run ./examples/watch

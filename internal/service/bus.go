@@ -54,6 +54,7 @@ type eventListener[T any] struct {
 	listener T
 }
 
+// todo: merge with the junk bucket implementation -- consider moving locking
 type eventEmitter[T any] struct {
 	state     *sync.Mutex
 	listeners []*eventListener[T]

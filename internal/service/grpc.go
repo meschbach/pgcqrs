@@ -243,8 +243,8 @@ func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 			return nil
 		}
 	}
-	watcher := g.bus.onEventStorage.addListener(listener)
-	defer g.bus.onEventStorage.removeListener(watcher)
+	watcher := g.bus.onEventStorage.OnE(listener)
+	defer watcher.Off()
 
 	type runResult struct {
 		count   int

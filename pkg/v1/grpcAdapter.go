@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -367,4 +368,35 @@ func (g *GrpcAdapter) Meta(ctx context.Context) (WireMetaV1, error) {
 		result.Domains = append(result.Domains, *d)
 	}
 	return result, nil
+}
+
+// todo: query should be a pointer
+// todo: inner goproc should probably be pulled out
+func (g *GrpcAdapter) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+	stream, err := g.queries.Watch(ctx, &query)
+	if err != nil {
+		return nil, err
+	}
+
+	out := make(chan ipc.QueryOut, 32)
+	go func() {
+		defer close(out)
+		for {
+			reply, err := stream.Recv()
+			if err != nil {
+				if errors.Is(err, io.EOF) {
+					return
+				} else {
+					//todo: this should be relayed
+					panic(err)
+				}
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case out <- *reply:
+			}
+		}
+	}()
+	return out, nil
 }

@@ -2,7 +2,9 @@ package query2
 
 import (
 	"context"
+	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
+	"time"
 )
 
 type Query struct {
@@ -78,5 +80,55 @@ func (q *Query) StreamBatch(ctx context.Context) error {
 			return err
 		}
 	}
+	return nil
+}
+
+func (q *Query) Watch(ctx context.Context) error {
+	handlers := &handlers{}
+
+	request := &ipc.QueryIn{}
+	for _, c := range q.kinds {
+		if err := c.prepareQuery(ctx, request, handlers); err != nil {
+			return err
+		}
+	}
+	//for _, i := range q.ids {
+	//	if err := i.prepareRequest(ctx, request, handlers); err != nil {
+	//		return err
+	//	}
+	//}
+
+	// Short circuit the request when there are no usable query elements
+	//if request.Empty() {
+	//	return nil
+	//}
+
+	reply, err := q.stream.Watch(ctx, *request)
+	if err != nil {
+		return err
+	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case m, ok := <-reply:
+				if !ok {
+					return
+				}
+				t := m.Envelope.When.AsTime().Format(time.RFC3339)
+				handler := handlers.registered[m.Op]
+				envelope := v1.Envelope{
+					ID:   *m.Id,
+					When: t,
+					Kind: m.Envelope.Kind,
+				}
+				if err := handler(ctx, envelope, m.Body); err != nil {
+					//todo: handle more gracefully
+					panic(err)
+				}
+			}
+		}
+	}()
 	return nil
 }

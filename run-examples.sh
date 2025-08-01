@@ -8,6 +8,7 @@ go run ./examples/query
 go run ./examples/queryInt
 go run ./examples/queryBatch
 go run ./examples/query2
+go run ./examples/watch
 
 export PGCQRS_SERVICE_TRANSPORT="http"
 go run ./examples/simple
@@ -24,3 +25,4 @@ go run ./examples/query
 go run ./examples/queryInt
 go run ./examples/queryBatch
 go run ./examples/query2
+go run ./examples/watch

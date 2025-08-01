@@ -23,6 +23,7 @@ type grpcCommand struct {
 	ipc.UnimplementedCommandServer
 	oldCore *storage
 	core    *storage2.Repository
+	bus     *bus
 }
 
 func (g *grpcCommand) CreateStream(ctx context.Context, in *ipc.CreateStreamIn) (*ipc.CreateStreamOut, error) {
@@ -35,6 +36,7 @@ func (g *grpcCommand) Submit(ctx context.Context, in *ipc.SubmitIn) (*ipc.Submit
 	if err != nil {
 		return nil, err
 	}
+	g.bus.dispatchOnEventStored(ctx, in.Events.Domain, in.Events.Stream, id, in.Kind, in.Body)
 	return &ipc.SubmitOut{
 		Id:    id,
 		State: &ipc.Consistency{After: id},
@@ -45,6 +47,7 @@ type grpcQuery struct {
 	ipc.UnimplementedQueryServer
 	oldCore *storage
 	core    *storage2.Repository
+	bus     *bus
 }
 
 func (g *grpcQuery) ListStreams(ctx context.Context, in *ipc.ListStreamsIn) (*ipc.ListStreamsOut, error) {
@@ -179,11 +182,117 @@ func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 	return errors.Join(run.problem, translator.problem)
 }
 
+func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
+	ctx := out.Context()
+	var ops []storage2.Operation
+
+	for _, kClause := range in.OnKind {
+		if kClause.AllOp != nil {
+			ops = append(ops, &storage2.EachKind{
+				App:    in.Events.Domain,
+				Stream: in.Events.Stream,
+				Op:     int(*kClause.AllOp),
+				Kind:   kClause.Kind,
+			})
+		}
+		for _, subsetClause := range kClause.Subsets {
+			ops = append(ops, &storage2.MatchSubset{
+				App:    in.Events.Domain,
+				Stream: in.Events.Stream,
+				Op:     int(subsetClause.Op),
+				Kind:   kClause.Kind,
+				Subset: subsetClause.Match,
+			})
+		}
+	}
+	for _, idClause := range in.OnID {
+		op := storage2.WithMatchID(in.Events.Domain, in.Events.Stream, idClause.Id, int(idClause.Op))
+		ops = append(ops, op)
+	}
+	if eachClause := in.OnEach; eachClause != nil {
+		op := &storage2.AllStreamEvents{
+			Domain: in.Events.Domain,
+			Stream: in.Events.Stream,
+			Op:     int(eachClause.Op),
+		}
+		ops = append(ops, op)
+	}
+
+	if len(ops) == 0 {
+		return nil
+	}
+
+	//
+	// translator will send contents of results to the target client
+	//
+	results := make(chan storage2.OperationResult, 128)
+	translateOut := make(chan error, 1)
+	stream := &grpcResultStream{out: out}
+	go stream.runTranslator(ctx, results, translateOut)
+
+	//
+	// Watch messages
+	//
+	queryAgain := make(chan interface{}, 1)
+	queryAgain <- nil
+	listener := func(ctx context.Context, storage EventStorageEvent) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case queryAgain <- nil:
+			return nil
+		}
+	}
+	watcher := g.bus.onEventStorage.OnE(listener)
+	defer watcher.Off()
+
+	type runResult struct {
+		count   int
+		problem error
+	}
+
+	for {
+		select {
+		case <-ctx.Done():
+			translator := <-translateOut
+			return errors.Join(translator, ctx.Err())
+		case <-queryAgain:
+			queryResults, start, err := g.core.Stream(out.Context(), ops)
+			if err != nil {
+				return err
+			}
+
+			go func() {
+				for r := range queryResults {
+					results <- r
+				}
+			}()
+
+			runOut := make(chan runResult, 1)
+			go func() {
+				count, err := start(out.Context())
+				runOut <- runResult{count, err}
+				close(runOut)
+			}()
+			select {
+			case <-ctx.Done():
+				//todo:determine errors blocking
+				return ctx.Err()
+			case runErr := <-runOut:
+				if runErr.problem != nil {
+					return runErr.problem
+				}
+			}
+		}
+	}
+}
+
 // grpcPort exports a Command and Query grpc with the specified configuration
 type grpcPort struct {
 	config  *GRPCListenerConfig
 	oldCore *storage
 	core    *storage2.Repository
+	bus     *bus
 }
 
 func (g *grpcPort) Serve(ctx context.Context) error {
@@ -209,10 +318,12 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 	ipc.RegisterCommandServer(service, &grpcCommand{
 		oldCore: g.oldCore,
 		core:    g.core,
+		bus:     g.bus,
 	})
 	ipc.RegisterQueryServer(service, &grpcQuery{
 		oldCore: g.oldCore,
 		core:    g.core,
+		bus:     g.bus,
 	})
 
 	//

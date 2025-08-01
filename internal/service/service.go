@@ -20,6 +20,7 @@ import (
 type service struct {
 	storage    *storage
 	repository *storage2.Repository
+	bus        *bus
 }
 
 type Result struct {
@@ -125,7 +126,10 @@ func Serve(ctx context.Context, cfg Config) {
 	}()
 
 	var appDone <-chan error
-	s := &service{}
+	s := &service{
+		bus: newBus(),
+	}
+
 	func() {
 		startup, span := tracer.Start(ctx, "pgcqrs.start")
 		defer span.End()
@@ -144,6 +148,7 @@ func Serve(ctx context.Context, cfg Config) {
 				config:  cfg.GRPCListener,
 				oldCore: s.storage,
 				core:    s.repository,
+				bus:     s.bus,
 			})
 		}
 		appDone = app.ServeBackground(ctx)

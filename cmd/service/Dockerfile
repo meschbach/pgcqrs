@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.24 as builder
+FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
 ARG TARGETPLATFORM
 ARG BUILDPLATFORM
 ARG TARGETOS
@@ -21,7 +21,7 @@ RUN go mod download -x
 COPY . .
 RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags='-w -s -extldflags "-static"' -o service ./cmd/service
 
-FROM --platform=$TARGETPLATFORM scratch as final
+FROM --platform=$TARGETPLATFORM scratch AS final
 WORKDIR /
 COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/

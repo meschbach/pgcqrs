@@ -370,6 +370,12 @@ func (g *GrpcAdapter) Meta(ctx context.Context) (WireMetaV1, error) {
 	return result, nil
 }
 
+var ignoreErrors = []error{
+	context.Canceled,
+	context.DeadlineExceeded,
+	io.EOF,
+}
+
 // todo: query should be a pointer
 // todo: inner goproc should probably be pulled out
 func (g *GrpcAdapter) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error) {
@@ -384,12 +390,12 @@ func (g *GrpcAdapter) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.
 		for {
 			reply, err := stream.Recv()
 			if err != nil {
-				if errors.Is(err, io.EOF) {
-					return
-				} else {
-					//todo: this should be relayed
-					panic(err)
+				for _, e := range ignoreErrors {
+					if errors.Is(err, e) {
+						return
+					}
 				}
+				fmt.Printf("error reading from stream: %e", err)
 			}
 			select {
 			case <-ctx.Done():

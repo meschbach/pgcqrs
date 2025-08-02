@@ -49,6 +49,9 @@ spec:
             - name: http
               containerPort: 9000
               protocol: TCP
+            - name: grpc
+              containerPort: 9001
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /ops/liveness

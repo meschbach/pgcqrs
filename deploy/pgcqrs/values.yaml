@@ -8,7 +8,7 @@ image:
   repository: "meschbach/pgcqrs"
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "cb82fe0"
+  tag: "0.8.4"
 
 imagePullSecrets: []
 nameOverride: ""

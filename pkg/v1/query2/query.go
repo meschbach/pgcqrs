@@ -2,6 +2,8 @@ package query2
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"time"
@@ -83,6 +85,11 @@ func (q *Query) StreamBatch(ctx context.Context) error {
 	return nil
 }
 
+var safeErrors = []error{
+	context.Canceled,
+	context.DeadlineExceeded,
+}
+
 func (q *Query) Watch(ctx context.Context) error {
 	handlers := &handlers{}
 
@@ -103,6 +110,7 @@ func (q *Query) Watch(ctx context.Context) error {
 	//	return nil
 	//}
 
+	//todo: interface should accept a pointer
 	reply, err := q.stream.Watch(ctx, *request)
 	if err != nil {
 		return err
@@ -124,8 +132,13 @@ func (q *Query) Watch(ctx context.Context) error {
 					Kind: m.Envelope.Kind,
 				}
 				if err := handler(ctx, envelope, m.Body); err != nil {
-					//todo: handle more gracefully
-					panic(err)
+					for _, e := range safeErrors {
+						if errors.Is(err, e) {
+							return
+						}
+					}
+					//todo: should be provided to an outer context to deal with
+					fmt.Printf("error processing event: %e\n", err)
 				}
 			}
 		}

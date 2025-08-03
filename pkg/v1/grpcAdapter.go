@@ -378,8 +378,8 @@ var ignoreErrors = []error{
 
 // todo: query should be a pointer
 // todo: inner goproc should probably be pulled out
-func (g *GrpcAdapter) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error) {
-	stream, err := g.queries.Watch(ctx, &query)
+func (g *GrpcAdapter) Watch(ctx context.Context, query *ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+	stream, err := g.queries.Watch(ctx, query)
 	if err != nil {
 		return nil, err
 	}
@@ -395,7 +395,7 @@ func (g *GrpcAdapter) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.
 						return
 					}
 				}
-				fmt.Printf("error reading from stream: %e", err)
+				return
 			}
 			select {
 			case <-ctx.Done():

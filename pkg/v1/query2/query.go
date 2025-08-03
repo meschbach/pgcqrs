@@ -111,7 +111,7 @@ func (q *Query) Watch(ctx context.Context) error {
 	//}
 
 	//todo: interface should accept a pointer
-	reply, err := q.stream.Watch(ctx, *request)
+	reply, err := q.stream.Watch(ctx, request)
 	if err != nil {
 		return err
 	}

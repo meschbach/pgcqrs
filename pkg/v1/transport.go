@@ -18,13 +18,13 @@ type Transport interface {
 	QueryBatch(ctx context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error
 	QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error
 	Meta(ctx context.Context) (WireMetaV1, error)
-	Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error)
+	Watch(ctx context.Context, query *ipc.QueryIn) (<-chan ipc.QueryOut, error)
 }
 
 type StreamTransport interface {
 	QueryBatchR2(ctx context.Context, batch *WireBatchR2Request) (*WireBatchR2Result, error)
 	//todo: relocate
-	Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error)
+	Watch(ctx context.Context, query *ipc.QueryIn) (<-chan ipc.QueryOut, error)
 }
 
 type WireQuery struct {

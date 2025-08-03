@@ -269,7 +269,7 @@ func (m *memory) QueryBatchR2(parent context.Context, domain, stream string, que
 	return nil
 }
 
-func (m *memory) Watch(ctx context.Context, query ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (<-chan ipc.QueryOut, error) {
 	output := make(chan ipc.QueryOut, 128)
 
 	go func() {

@@ -37,6 +37,7 @@ func main() {
 		SilenceErrors: true,
 	}
 	root.AddCommand(&serve)
+	root.AddCommand(healthCheckCommand())
 
 	if err := root.Execute(); err != nil {
 		fmt.Fprintf(os.Stderr, "Encoutnered error while servicing request: %s\n", err.Error())

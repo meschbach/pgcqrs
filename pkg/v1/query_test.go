@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"math/rand"
@@ -32,9 +33,10 @@ func TestKindFilter(t *testing.T) {
 
 func TestKindEqFilter(t *testing.T) {
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
-		kind1 := faker.Word()
+		words := faking.NewUniqueWords()
+		kind1 := words.Next()
 		targetCN := faker.FirstName()
-		kind2 := faker.Word()
+		kind2 := words.Next()
 
 		h.stream.MustSubmit(ctx, kind1, &PutEvent{Value: faker.Word()})
 		target := h.stream.MustSubmit(ctx, kind1, &PutEvent{Value: targetCN})

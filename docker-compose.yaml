@@ -51,6 +51,13 @@ services:
     depends_on:
       migrator:
         condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD","/service", "health-check", "http"]
+      interval: 30s
+      timeout: 1s
+      retries: 3
+      start_interval: 1s
+      start_period: 1s
 
 volumes:
   postgres_data:

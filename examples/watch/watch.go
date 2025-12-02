@@ -71,20 +71,27 @@ func main() {
 	// When we establish a watch
 	//
 	subBuilder := query2.NewQuery(stream)
-	sync := make(chan Event, 5)
+	sync := make(chan Event, 25)
 	defer close(sync)
 	subBuilder.OnKind(kind2).Subset(&Event{Word: targetWordPtr}).On(v1.EntityFunc(func(ctx context.Context, e v1.Envelope, entity Event) {
-		sync <- entity
+		fmt.Printf("CCC Received event %d\n", e.ID)
+		select {
+		case sync <- entity:
+			fmt.Printf("CCC\t\tevent %d pushed\n", e.ID)
+		case <-ctx.Done():
+			panic(ctx.Err())
+		}
 	}))
 
-	if err := subBuilder.Watch(ctx); err != nil {
+	pump, err := subBuilder.Watch(ctx)
+	if err != nil {
 		panic(err)
 	}
 
 	//
 	// Then we should receive the original event
 	//
-	firstEvent, err := receiveOrTimeout[Event](ctx, sync, 500*time.Millisecond)
+	firstEvent, err := tickPump[Event](ctx, pump, 500*time.Millisecond, sync)
 	if err != nil {
 		panic(err)
 	}
@@ -101,7 +108,7 @@ func main() {
 	//
 	// Then the event is propagated
 	//
-	secondEvent, err := receiveOrTimeout[Event](ctx, sync, 500*time.Millisecond)
+	secondEvent, err := tickPump[Event](ctx, pump, 500*time.Millisecond, sync)
 	if err != nil {
 		panic(err)
 	}
@@ -113,13 +120,21 @@ func main() {
 	fmt.Printf("Success\n")
 }
 
-func receiveOrTimeout[T any](ctx context.Context, from <-chan T, maximumWait time.Duration) (out T, problem error) {
+func tickPump[T any](parent context.Context, pump *query2.Watch, maximumWait time.Duration, from <-chan T) (out T, problem error) {
+	timedContext, done := context.WithTimeout(parent, maximumWait)
+	defer done()
+
+	if err := pump.Tick(timedContext); err != nil {
+		return out, err
+	}
+
 	select {
-	case <-ctx.Done():
-		return out, ctx.Err()
-	case v := <-from:
+	case <-timedContext.Done():
+		return out, timedContext.Err()
+	case v, ok := <-from:
+		if !ok {
+			return out, fmt.Errorf("sync channel not okay")
+		}
 		return v, nil
-	case <-time.After(maximumWait):
-		return out, fmt.Errorf("timed out waiting for message")
 	}
 }

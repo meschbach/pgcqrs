@@ -1,12 +1,7 @@
-FROM --platform=$BUILDPLATFORM golang:1.24 AS builder
-ARG TARGETPLATFORM
-ARG BUILDPLATFORM
-ARG TARGETOS
-ARG TARGETARCH
-RUN uname -a
-RUN echo $BUILDPLATFORM $TARGETPLATFORM $TARGETARCH $TARGETOS
+FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS data
+RUN apk update && apk add ca-certificates && apk add tzdata
 ENV USER=appuser
-ENV UID=9000
+ENV UID=10001
 RUN adduser \
     --disabled-password \
     --gecos "" \
@@ -16,21 +11,16 @@ RUN adduser \
     --uid "${UID}" \
     "${USER}"
 WORKDIR /app
-COPY go.mod go.sum /app
-RUN go mod download -x
-COPY . .
-RUN CGO_ENABLED=0 GOOS=$TARGETOS GOARCH=$TARGETARCH go build -ldflags='-w -s -extldflags "-static"' -o migrator ./cmd/migrator
 
-FROM --platform=$TARGETPLATFORM alpine AS final
-WORKDIR /
-COPY --from=builder /usr/share/zoneinfo /usr/share/zoneinfo
-COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /etc/passwd /etc/passwd
-COPY --from=builder /etc/group /etc/group
-COPY --from=builder /app/migrator /migrator
-RUN mkdir -p /app/migrations
-COPY migrations /app/migrations
-RUN ls /app/migrations
+FROM scratch AS final
+ARG TARGETARCH
+ARG TARGETOS
+COPY --from=data /usr/share/zoneinfo /usr/share/zoneinfo
+COPY --from=data /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
+COPY --from=data /etc/passwd /etc/passwd
+COPY --from=data /etc/group /etc/group
 USER appuser:appuser
-WORKDIR /app
+COPY --chown=appuser:appuser --chmod=ugo=rx build/migrator_$TARGETARCH /migrator
+COPY migrations/ /migrations/
+
 ENTRYPOINT ["/migrator"]

@@ -86,7 +86,7 @@ func (s *Stream) QueryBatchR2(ctx context.Context, batch *WireBatchR2Request) (*
 }
 
 // todo: relocate
-func (s *Stream) Watch(ctx context.Context, query *ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+func (s *Stream) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
 	query.Events = &ipc.DomainStream{
 		Domain: s.domain,
 		Stream: s.stream,

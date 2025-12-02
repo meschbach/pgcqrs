@@ -3,8 +3,10 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/meschbach/pgcqrs/pkg/v1/local"
+	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"time"
 )
@@ -29,8 +31,9 @@ type memoryDomain struct {
 }
 
 type memoryStream struct {
-	name        string
-	packets     []memoryPacket
+	name    string
+	packets []memoryPacket
+	//todo: convert to SyncEmitter
 	onAddPacket []func(int64)
 }
 
@@ -136,6 +139,9 @@ func (m *memory) GetEvent(ctx context.Context, domain, stream string, id int64, 
 			if s, ok := d.streams[stream]; !ok {
 				return
 			} else {
+				if len(s.packets) <= int(id) {
+					return
+				}
 				event := s.packets[id]
 				data = event.data
 				missing = false
@@ -269,128 +275,143 @@ func (m *memory) QueryBatchR2(parent context.Context, domain, stream string, que
 	return nil
 }
 
-func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (<-chan ipc.QueryOut, error) {
-	output := make(chan ipc.QueryOut, 128)
+func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
+	pendingEvents := make(chan int64, 128)
+	var initEventEnd int64
 
-	go func() {
-		defer close(output)
-		changes := make(chan int64, 128)
-		defer close(changes)
-		m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+	initSetup := &errgroup.Group{}
+	//registers a listener for on added packets
+	initSetup.Go(func() error {
+		return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
 			stream := m.domains[query.Events.Domain].streams[query.Events.Stream]
 			stream.onAddPacket = append(stream.onAddPacket, func(id int64) {
-				changes <- id
+				fmt.Printf("onAddPacket: %d\n", id)
+				pendingEvents <- id
 			})
 		}})
+	})
 
-		send := func(op int64, e Envelope, body json.RawMessage) {
-			whenTime, err := time.Parse(time.StampMilli, e.When)
-			if err != nil {
-				panic(err)
-			}
-			output <- ipc.QueryOut{
-				Op: op,
-				Id: &e.ID,
-				Envelope: &ipc.MaterializedEnvelope{
-					Id:   e.ID,
-					When: timestamppb.New(whenTime), //todo: fix
-					Kind: e.Kind,
-				},
-				Body: body,
-			}
-		}
+	initSetup.Go(func() error {
+		return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+			stream := m.domains[query.Events.Domain].streams[query.Events.Stream]
+			initEventEnd = int64(len(stream.packets))
+		}})
+	})
 
-		maybeSend := func(e Envelope) error {
-			for _, onKind := range query.OnKind {
-				if onKind.Kind == e.Kind {
-					if onKind.AllOp != nil {
-						var data json.RawMessage
-						if err := m.GetEvent(ctx, query.Events.Domain, query.Events.Stream, e.ID, &data); err != nil {
-							return err
-						}
-						send(*onKind.AllOp, e, data)
-					}
-					for _, match := range onKind.Subsets {
-						var data json.RawMessage
-						if err := m.GetEvent(ctx, query.Events.Domain, query.Events.Stream, e.ID, &data); err != nil {
-							return err
-						}
-						if local.JSONIsSubset(data, match.Match) {
-							send(match.Op, e, data)
-						}
-					}
-				}
-			}
-			return nil
-		}
-		pastEvents := func() error {
-			envelopes, err := m.AllEnvelopes(ctx, query.Events.Domain, query.Events.Stream)
-			if err != nil {
-				return err
-			}
-			for _, e := range envelopes {
-				if err := maybeSend(e); err != nil {
-					return err
-				}
-			}
-			return nil
-		}
+	if err := initSetup.Wait(); err != nil {
+		//todo: better cleanup -- this should cleanup in a more sane way
+		close(pendingEvents)
+		return nil, err
+	}
 
-		err := pastEvents()
+	return &memoryWatch{
+		core:          m,
+		domain:        query.Events.Domain,
+		stream:        query.Events.Stream,
+		pendingEvents: pendingEvents,
+		filter: &queryInFilter{
+			core:  m,
+			query: query,
+		},
+		initEventEnd: initEventEnd,
+	}, nil
+}
+
+type memoryWatch struct {
+	// required
+	core          *memory
+	domain        string
+	stream        string
+	pendingEvents <-chan int64
+	filter        *queryInFilter
+
+	//internal state
+	pending      []*ipc.QueryOut
+	lastEvent    int64
+	initEventEnd int64
+}
+
+func (m *memoryWatch) enqueue(op int64, envelope Envelope, message json.RawMessage) {
+	if envelope.ID < m.lastEvent {
+		return
+	}
+	m.lastEvent = envelope.ID
+
+	fmt.Printf("enqueuing: (op: %d, event: %d)\n", op, envelope.ID)
+	whenTime, err := time.Parse(time.StampMilli, envelope.When)
+	if err != nil {
+		panic(err)
+	}
+
+	event := &ipc.QueryOut{
+		Op: op,
+		Id: &envelope.ID,
+		Envelope: &ipc.MaterializedEnvelope{
+			Id:   envelope.ID,
+			When: timestamppb.New(whenTime),
+			Kind: envelope.Kind,
+		},
+		Body: message,
+	}
+	m.pending = append(m.pending, event)
+}
+
+func (m *memoryWatch) pop() *ipc.QueryOut {
+	if len(m.pending) == 0 {
+		return nil
+	}
+	out := m.pending[0]
+	m.pending = m.pending[1:]
+	return out
+}
+
+func (m *memoryWatch) Tick(ctx context.Context) (*ipc.QueryOut, error) {
+	if e := m.pop(); e != nil {
+		return e, nil
+	}
+
+	if m.lastEvent < m.initEventEnd {
+		all, err := m.core.AllEnvelopes(ctx, m.domain, m.stream)
 		if err != nil {
-			panic(err)
+			return nil, err
 		}
 
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case id := <-changes:
-				envelopes, err := m.AllEnvelopes(ctx, query.Events.Domain, query.Events.Stream)
-				if err != nil {
-					panic(err)
-				}
-
-				if err := maybeSend(envelopes[id]); err != nil {
-					panic(err)
-				}
+		for _, e := range all {
+			if err := m.filter.filter(ctx, e, func(op int64, envelope Envelope, message json.RawMessage) {
+				m.enqueue(op, envelope, message)
+			}); err != nil {
+				return nil, err
 			}
+			m.lastEvent = e.ID
 		}
-	}()
-	return output, nil
+		m.lastEvent = m.initEventEnd
+	}
 
-	//
-	//for _, e := range envelopes {
-	//	for _, onKind := range query.OnKind {
-	//		if onKind.Kind == e.Kind {
-	//			for _, match := range onKind.Match {
-	//				var data json.RawMessage
-	//				if err := m.GetEvent(parent, domain, stream, e.ID, &data); err != nil {
-	//					return nil, err
-	//				}
-	//				if local.JSONIsSubset(data, match.Subset) {
-	//					out.Results = append(out.Results, WireBatchR2Dispatch{
-	//						Envelope: e,
-	//						Event:    data,
-	//						Op:       match.Op,
-	//					})
-	//				}
-	//			}
-	//		}
-	//	}
-	//	for _, onID := range query.OnID {
-	//		if e.ID == onID.ID {
-	//			var data json.RawMessage
-	//			if err := m.GetEvent(parent, domain, stream, e.ID, &data); err != nil {
-	//				return nil, err
-	//			}
-	//			out.Results = append(out.Results, WireBatchR2Dispatch{
-	//				Envelope: e,
-	//				Event:    data,
-	//				Op:       onID.Op,
-	//			})
-	//		}
-	//	}
-	//}
-	//return nil
+	for {
+		if e := m.pop(); e != nil {
+			fmt.Printf("\tPopped: %v\n", e)
+			return e, nil
+		}
+
+		select {
+		case id := <-m.pendingEvents:
+			fmt.Printf("\tGot event: %d\n", id)
+			envelopes, err := m.core.AllEnvelopes(ctx, m.domain, m.stream)
+			if err != nil {
+				fmt.Printf("\tget all failed: %d\n", id)
+				return nil, err
+			}
+			envelope := envelopes[id]
+			if err = m.filter.filter(ctx, envelope, func(op int64, envelope Envelope, message json.RawMessage) {
+				fmt.Printf("\tmatch received: %d\n", id)
+				m.enqueue(op, envelope, message)
+			}); err != nil {
+				fmt.Printf("\tfilter failed: %d\n", id)
+				return nil, err
+			}
+			fmt.Printf("\tpost-filter: (count: %d)\n", len(m.pending))
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
+	}
 }

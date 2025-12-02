@@ -2,11 +2,8 @@ package query2
 
 import (
 	"context"
-	"errors"
-	"fmt"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
-	"time"
 )
 
 type Query struct {
@@ -85,18 +82,18 @@ func (q *Query) StreamBatch(ctx context.Context) error {
 	return nil
 }
 
-var safeErrors = []error{
-	context.Canceled,
-	context.DeadlineExceeded,
-}
-
-func (q *Query) Watch(ctx context.Context) error {
-	handlers := &handlers{}
+// Watch performs the initial matching query, then will continue to watch for matching changes to be dispatched.
+//
+// Return values:
+// * pump is the resulting pump to push matching elements from the remote service.
+// * setup is non-nil if the system fails the initial query or setup of the vision
+func (q *Query) Watch(ctx context.Context) (pump *Watch, setup error) {
+	dispatcher := &handlers{}
 
 	request := &ipc.QueryIn{}
 	for _, c := range q.kinds {
-		if err := c.prepareQuery(ctx, request, handlers); err != nil {
-			return err
+		if err := c.prepareQuery(ctx, request, dispatcher); err != nil {
+			return nil, err
 		}
 	}
 	//for _, i := range q.ids {
@@ -110,38 +107,13 @@ func (q *Query) Watch(ctx context.Context) error {
 	//	return nil
 	//}
 
-	//todo: interface should accept a pointer
-	reply, err := q.stream.Watch(ctx, request)
+	wirePump, err := q.stream.Watch(ctx, request)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case m, ok := <-reply:
-				if !ok {
-					return
-				}
-				t := m.Envelope.When.AsTime().Format(time.RFC3339)
-				handler := handlers.registered[m.Op]
-				envelope := v1.Envelope{
-					ID:   *m.Id,
-					When: t,
-					Kind: m.Envelope.Kind,
-				}
-				if err := handler(ctx, envelope, m.Body); err != nil {
-					for _, e := range safeErrors {
-						if errors.Is(err, e) {
-							return
-						}
-					}
-					//todo: should be provided to an outer context to deal with
-					fmt.Printf("error processing event: %e\n", err)
-				}
-			}
-		}
-	}()
-	return nil
+	pump = &Watch{
+		handlers: dispatcher,
+		wirePump: wirePump,
+	}
+	return pump, nil
 }

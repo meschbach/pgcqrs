@@ -5,13 +5,14 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/status"
 	"io"
 	"io/ioutil"
 	"os"
@@ -376,33 +377,24 @@ var ignoreErrors = []error{
 	io.EOF,
 }
 
-// todo: query should be a pointer
-// todo: inner goproc should probably be pulled out
-func (g *GrpcAdapter) Watch(ctx context.Context, query *ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+func (g *GrpcAdapter) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
 	stream, err := g.queries.Watch(ctx, query)
 	if err != nil {
 		return nil, err
 	}
+	return &grpcWatchPump{wire: stream}, nil
+}
 
-	out := make(chan ipc.QueryOut, 32)
-	go func() {
-		defer close(out)
-		for {
-			reply, err := stream.Recv()
-			if err != nil {
-				for _, e := range ignoreErrors {
-					if errors.Is(err, e) {
-						return
-					}
-				}
-				return
-			}
-			select {
-			case <-ctx.Done():
-				return
-			case out <- *reply:
-			}
+type grpcWatchPump struct {
+	wire grpc.ServerStreamingClient[ipc.QueryOut]
+}
+
+func (g *grpcWatchPump) Tick(ctx context.Context) (msg *ipc.QueryOut, err error) {
+	msg, err = g.wire.Recv()
+	if err != nil {
+		if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {
+			return nil, context.Canceled
 		}
-	}()
-	return out, nil
+	}
+	return msg, err
 }

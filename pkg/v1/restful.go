@@ -181,7 +181,7 @@ func (c *HttpTransportLayer) QueryBatchR2(parent context.Context, domain, stream
 	return c.post(parent, "query-batch-r2", url, query, out)
 }
 
-func (c *HttpTransportLayer) Watch(ctx context.Context, query *ipc.QueryIn) (<-chan ipc.QueryOut, error) {
+func (c *HttpTransportLayer) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
 	return nil, errors.New("not implemented")
 }
 

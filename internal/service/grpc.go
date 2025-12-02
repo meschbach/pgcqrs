@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"fmt"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
@@ -105,7 +106,7 @@ func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 				Stream: in.Events.Stream,
 				Op:     int(subsetClause.Op),
 				Kind:   kClause.Kind,
-				Subset: subsetClause.Match,
+				Subset: json.RawMessage(subsetClause.Match),
 			})
 		}
 	}
@@ -201,7 +202,7 @@ func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 				Stream: in.Events.Stream,
 				Op:     int(subsetClause.Op),
 				Kind:   kClause.Kind,
-				Subset: subsetClause.Match,
+				Subset: json.RawMessage(subsetClause.Match),
 			})
 		}
 	}

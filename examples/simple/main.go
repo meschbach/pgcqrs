@@ -15,7 +15,7 @@ type Event struct {
 }
 
 func main() {
-	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
 	defer done()
 
 	cfg := v1.NewConfig().LoadEnv()

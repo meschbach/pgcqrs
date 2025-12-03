@@ -1,6 +1,8 @@
 # PGCQRS
 Provides a JSON event store with support for multi-tenancy and observability.
 
+[![License](https://img.shields.io/badge/License-Apache%202.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
+
 ## Features
 
 *   **Event Storage**: Persists all events directly into Postgres.
@@ -56,7 +58,8 @@ The project contains several examples demonstrating different usage patterns in 
 A whole battery of examples are available via `./run-examples.sh`.
 
 # Contributing
-Yes please!  Open a pull request!
+Pull requests are welcome.
 
-For major changes please open an issue first to discuss what you would like to
-change.
+For major changes, please open an issue first to discuss what you would like to change.
+
+Contributions will be accepted under the Apache 2.0 license.

@@ -18,12 +18,13 @@ for arch in ${TARGET_ARCHS}
 do
   for os in ${TARGET_OS}
   do
+    echo "Building ${arch} ${os}"
     mkdir -p "build/${arch}_${os}"
     compile service "$arch" "$os"
     compile pgcqrs "$arch" "$os"
     compile migrator "$arch" "$os"
     (cd "build/${arch}_${os}"
-    tar zcvf "../pgcqrs_${arch}_${os}.tgz" service pgcqrs migrator
+    tar zcvf "../pgcqrs_${arch}_${os}.tgz" service pgcqrs migrator >/dev/null
     )
   done
 done

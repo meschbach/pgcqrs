@@ -6,3 +6,8 @@
 /test.sh
 /publish.sh
 /pgcqrs
+build/
+arm64_darwin
+arm64_linux
+amd64_darwin
+amd64_linux

@@ -2,23 +2,32 @@ package migrator
 
 import (
 	"context"
+	"errors"
 	"fmt"
+
 	"github.com/golang-migrate/migrate/v4"
 	_ "github.com/golang-migrate/migrate/v4/database/pgx"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
+	"github.com/golang-migrate/migrate/v4/source/iofs"
+	"github.com/meschbach/pgcqrs/migrations/primary"
 )
 
-func MigratePrimary(ctx context.Context, config Config) error {
-	dir := "file://" + config.MigrationDir
+func MigratePrimary(ctx context.Context, config Config) (problem error) {
+	migrations, err := iofs.New(primary.Migrations, "primary")
+	if err != nil {
+		return err
+	}
 	db := "pgx://" + config.Storage.Primary.DatabaseURL
-	fmt.Printf("Migration from %q\n", dir)
 
-	migrator, err := migrate.New(dir, db)
+	migrator, err := migrate.NewWithSourceInstance("primary", migrations, db)
 	if err != nil {
 		fmt.Println("Migration creation failed")
 		return err
 	}
-	defer migrator.Close()
+	defer func() {
+		sourceError, destinationError := migrator.Close()
+		problem = errors.Join(problem, sourceError, destinationError)
+	}()
 	migrator.Log = &migratorLogger{}
 	if err := migrator.Up(); err != nil {
 		if err.Error() != "no change" {

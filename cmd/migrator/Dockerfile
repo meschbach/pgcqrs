@@ -20,6 +20,6 @@ COPY --from=data /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=data /etc/passwd /etc/passwd
 COPY --from=data /etc/group /etc/group
 USER appuser:appuser
-COPY --chown=appuser:appuser --chmod=ugo=rx cmd/migrator/$TARGETARCH_$TARGETOS /migrator
+COPY --chown=appuser:appuser --chmod=ugo=rx "cmd/migrator/${TARGETARCH}_${TARGETOS}" /migrator
 
 ENTRYPOINT ["/migrator"]

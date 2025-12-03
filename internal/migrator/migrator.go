@@ -9,17 +9,17 @@ import (
 	_ "github.com/golang-migrate/migrate/v4/database/pgx"
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
-	"github.com/meschbach/pgcqrs/migrations/primary"
+	"github.com/meschbach/pgcqrs/migrations"
 )
 
 func MigratePrimary(ctx context.Context, config Config) (problem error) {
-	migrations, err := iofs.New(primary.Migrations, "primary")
+	migrationsFS, err := iofs.New(migrations.Primary, "primary")
 	if err != nil {
 		return err
 	}
 	db := "pgx://" + config.Storage.Primary.DatabaseURL
 
-	migrator, err := migrate.NewWithSourceInstance("primary", migrations, db)
+	migrator, err := migrate.NewWithSourceInstance("primary", migrationsFS, db)
 	if err != nil {
 		fmt.Println("Migration creation failed")
 		return err

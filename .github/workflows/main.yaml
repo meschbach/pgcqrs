@@ -41,7 +41,8 @@ jobs:
     timeout-minutes: 5
     # needed for version bumping
     permissions:
-          contents: write
+      contents: write
+      packages: write
     steps:
       - uses: actions/checkout@v4
         with:

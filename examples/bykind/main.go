@@ -3,11 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/meschbach/pgcqrs/pkg/junk/faking"
-	v1 "github.com/meschbach/pgcqrs/pkg/v1"
+
 	"os"
 	"strconv"
 	"time"
+
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
 const app = "example.bykind"

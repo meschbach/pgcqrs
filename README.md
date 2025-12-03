@@ -1,47 +1,62 @@
-# Postgres Command Query Responsibility Segregation
-PGCQRS proxies a Postgres database providing a set of streams containing store-time ordered JSON events.  Event streams
-may be queried for a subset of matching events or all events.  Streams exist in domain namespaces and an instance has
-multiple domains.
+# PGCQRS
+Provides a JSON event store with support for multi-tenancy and observability.
 
 ## Features
-Really simple, honestly.
-* Stores all events into Postgres
-* Separate streams for each application
-* TLS
-* OTEL instrumented
 
-## Deployment Scenarios
-PGCQRS requires a Postgres database and should be considered the sole owner.  PGCQRS will provide multiple {`domain`, `stream`}
-event sets for client applications.
+*   **Event Storage**: Persists all events directly into Postgres.
+*   **Multi-Tenancy**: separate streams for each client application or domain.
+*   **Security**: Support for TLS.
+*   **Observability**: Native OpenTelemetry (OTEL) instrumentation.
 
-```mermaid
-C4Context
-    title Deployment Scenario
-    System_Boundary(owned, "PGCQRS"){
-        SystemDb_Ext(pg_db, "Storing Postgres Database", "Owns a single database")
-        SystemDb(example, "{domain,stream}", "Provides set of streams organized into domains.")
-        System(pgcqrs, "PGCQRS Process")
-
-        Rel(pgcqrs,pg_db,"Owns a database")
-        Rel(pgcqrs,example, "Provides")
-        Rel(pgcqrs,otel,"Reports to")
-    }
-    System_Boundary(operations, "Operations"){
-        System(otel, "OTEL Endpoint")
-    }
-    System_Boundary(client,"Clients"){
-        System(client,"Client")
-        Rel(client, example, "Consumes and Queries")
-    }
+## Usage
+```bash
+pg_url="user:password@postgres:5432/pgcqrs"
+docker run -e "PGCQRS_STORAGE_POSTGRES_URL=$pg_url" ghcr.io/meschbach/pgcqrs-migrator:latest
+docker run -d -p 9000:9000 -p 9001:9001 -e "PGCQRS_STORAGE_POSTGRES_URL=$pg_url" ghcr.io/meschbach/pgcqrs:latest 
 ```
 
-## Usage in production
-Currently the following are not implemented which would be required for the system to be 'production ready':
-* Security: Authentication and Authorization.
+### Example operations in Go
+```go
+    //Creates the stream
+    exampleKind := "example" //used for the kind of event
+    stream := sys.MustStream(ctx, "readme", "test")
+    //submit events to be queried
+    stream.MustSubmit(ctx, exampleKind, &Event{First: true})
+    stream.MustSubmit(ctx, exampleKind, &Event{First: false})
+    
+    // prepare a query to find all events with First == true
+    q := query2.NewQuery(stream)
+    q.OnKind(exampleKind).Subset(Event{First: true}).On(v1.EntityFunc(func(ctx context.Context, e v1.Envelope, entity Event) {
+        //will be called for each found event as the query is executing
+        fmt.Printf("%#v\n", e)
+    }))
+    if err = q.StreamBatch(ctx); err != nil {
+        panic(err)
+    }
+```
+See the full example in [`examples/readme/main.go`](examples/readme/main.go) .
 
-### Setup
-Run the migrator using `migrator primary` with the proper credentials.  Then you may start the service.
+## Development: Getting started quickly
+To get started quickly, you'll need:
+*   Go 1.25+
+*   Docker & Docker Compose (for local development)
 
-## Releases History
-* v0.7.0 (not released yet) - Removes `kind` column.  Results in smaller database, faster inserts and queries.  Upgraded dependencies.
-* v0.6.0 - batch query version 2
+Just run `./docker-up.sh` to get it moving on port `9000` and `9001` .  The tool `pgcqrs` will be available in the root
+of the repository.
+
+### Examples and Testing
+
+The project contains several examples demonstrating different usage patterns in the `examples/` directory:
+
+*   **Simple**: Basic usage (`examples/simple`)
+*   **Querying**: How to query events (`examples/query`, `examples/query2`)
+*   **Watching**: Subscribing to streams (`examples/watch`)
+*   **Batching**: Batch query operations (`examples/queryBatch`)
+
+A whole battery of examples are available via `./run-examples.sh`.
+
+# Contributing
+Yes please!  Open a pull request!
+
+For major changes please open an issue first to discuss what you would like to
+change.

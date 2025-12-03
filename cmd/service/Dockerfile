@@ -20,7 +20,7 @@ COPY --from=data /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
 COPY --from=data /etc/passwd /etc/passwd
 COPY --from=data /etc/group /etc/group
 USER appuser:appuser
-COPY --chown=appuser:appuser --chmod=ugo=rx build/service_$TARGETARCH /service
+COPY --chown=appuser:appuser --chmod=ugo=rx "cmd/service/${TARGETARCH}_${TARGETOS}" /service
 
 ENTRYPOINT ["/service"]
 CMD ["serve"]

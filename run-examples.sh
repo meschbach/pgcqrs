@@ -40,12 +40,16 @@ export ENV="system_test.http"
   run_all no_watch
 )
 
-#export PGCQRS_SERVICE_URL="localhost:9001"
-#export PGCQRS_SERVICE_TRANSPORT="grpc"
-#go run ./examples/simple
-#go run ./examples/bykind
-#go run ./examples/query
-#go run ./examples/queryInt
-#go run ./examples/queryBatch
-#go run ./examples/query2
-#go run ./examples/watch
+echo
+echo "Running examples with gRPC"
+echo
+(
+: "${PGCQRS_SERVICE_URL_GRPC:=localhost:9001}"
+export PGCQRS_SERVICE_URL="$PGCQRS_SERVICE_URL_GRPC"
+export PGCQRS_SERVICE_TRANSPORT="grpc"
+run_all no_watch
+)
+
+echo
+echo "Success!"
+echo

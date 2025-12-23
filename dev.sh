@@ -42,18 +42,29 @@ function cmd_up() {
   #
   # System Tests
   #
-  (cd $self_dir
-  export PGCQRS_SERVICE_URL_HTTP=http://localhost:26000
-  export PGCQRS_SERVICE_URL_GRPC=localhost:26001
-  export OTEL_EXPORTER_OTLP_ENDPOINT: "http://localhost:16001"
-  export OTEL_EXPORTER: grpc
-  ./run-examples.sh
-  )
+  run_system_tests
 
   #
   # Reattach logs
   #
   docker-compose --file "$self_dir/docker-compose.yaml" --project-name pgcqrs logs --follow
+}
+
+########################################################################################################################
+# System Tests
+########################################################################################################################
+function cmd_system_tests() {
+  run_system_tests
+}
+
+function run_system_tests() {
+  (cd $self_dir
+  export PGCQRS_SERVICE_URL_HTTP=http://localhost:26000
+  export PGCQRS_SERVICE_URL_GRPC=localhost:26001
+  export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:16001"
+  export OTEL_EXPORTER=grpc
+  ./run-examples.sh
+  )
 }
 
 ########################################################################################################################
@@ -67,7 +78,8 @@ function cmd_unknown_help() {
 function summary_help() {
   echo "$0 <sub-command>"
   echo "Where <sub-command> is one of:"
-  echo "  up - containerize then runs the project"
+  echo "  up           - containerize then runs the project"
+  echo "  system_tests - runs just the system tests (assumes containers are running)"
 }
 
 case "$cmd" in
@@ -76,6 +88,9 @@ case "$cmd" in
     ;;
   up)
     cmd_up
+    ;;
+  system_tests)
+    cmd_system_tests
     ;;
   *)
     cmd_unknown_help

@@ -1,10 +1,11 @@
 package main
 
 import (
-	"context"
 	"fmt"
-	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"time"
+
+	"github.com/meschbach/pgcqrs/internal/junk/systest"
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
 const app = "example-simple"
@@ -15,7 +16,7 @@ type Event struct {
 }
 
 func main() {
-	ctx, done := context.WithTimeout(context.Background(), 5*time.Second)
+	ctx, done := systest.TraceApplication("simple", 5*time.Second)
 	defer done()
 
 	cfg := v1.NewConfig().LoadEnv()

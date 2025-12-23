@@ -1,13 +1,13 @@
 package main
 
 import (
-	"context"
 	"fmt"
 
 	"os"
 	"strconv"
 	"time"
 
+	"github.com/meschbach/pgcqrs/internal/junk/systest"
 	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
@@ -33,7 +33,7 @@ func main() {
 	kind3 := kinds.Next()
 	kind4 := kinds.Next()
 
-	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, done := systest.TraceApplication("bykind", 2*time.Second)
 	defer done()
 
 	cfg := v1.NewConfig().LoadEnv()

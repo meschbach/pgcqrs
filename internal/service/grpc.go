@@ -6,6 +6,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net"
+	"time"
+
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/thejerf/suture/v4"
@@ -16,8 +19,6 @@ import (
 	"google.golang.org/grpc"
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"net"
-	"time"
 )
 
 type grpcCommand struct {
@@ -241,6 +242,9 @@ func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 		case <-ctx.Done():
 			return ctx.Err()
 		case queryAgain <- nil:
+			return nil
+		default:
+			//todo: in the future the queue should be shutdown
 			return nil
 		}
 	}

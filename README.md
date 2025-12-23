@@ -11,10 +11,9 @@ Provides a JSON event store with support for multi-tenancy and observability.
 *   **Observability**: Native OpenTelemetry (OTEL) instrumentation.
 
 ## Usage
+Launch a local development environment via Docker Compose with the following:
 ```bash
-pg_url="user:password@postgres:5432/pgcqrs"
-docker run -e "PGCQRS_STORAGE_POSTGRES_URL=$pg_url" ghcr.io/meschbach/pgcqrs-migrator:latest
-docker run -d -p 9000:9000 -p 9001:9001 -e "PGCQRS_STORAGE_POSTGRES_URL=$pg_url" ghcr.io/meschbach/pgcqrs:latest 
+./dev.sh up
 ```
 
 ### Example operations in Go

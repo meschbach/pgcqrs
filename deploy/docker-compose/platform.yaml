@@ -1,0 +1,58 @@
+services:
+  pgcqrs_devxp_otel:
+    ports:
+      - "16000:3000"
+      - "16001:4317"
+      - "16002:4318"
+    volumes:
+      - pgcqrs_otel_grafana:/data
+    environment:
+      GF_PATHS_DATA: /data/grafana
+      ENABLE_LOGS_ALL: true
+    image: docker.io/grafana/otel-lgtm:latest
+    healthcheck:
+      test: cat /tmp/ready
+      interval: 1m
+      timeout: 10s
+      retries: 10
+      start_period: 1m
+      start_interval: 10s
+    attach: false
+    networks:
+      - platform
+
+  integration_pg:
+    image: postgres:18
+    restart: always
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password1234
+    ports:
+      - "16003:5432"
+    volumes:
+      - pgcqrs_integration_pg_data:/var/lib/postgresql/18/docker
+      - ./integ-pg/setup.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: pg_isready -U integ_tests -d integ_db
+      interval: 30s
+      timeout: 1s
+      retries: 3
+      start_interval: 1s
+      start_period: 5s
+    networks:
+      - integration
+
+volumes:
+  pgcqrs_integration_pg_data:
+  pgcqrs_otel_grafana:
+
+networks:
+  platform:
+    name: pgcqrs_platform
+    labels:
+      com.meschbach/version: 1
+  integration:
+    name: pgcqrs_integration
+    labels:
+      com.meschbach/version: 1

@@ -1,23 +1,4 @@
 services:
-  postgres:
-    image: postgres:13
-    restart: always
-    environment:
-      POSTGRES_DB: pgcqrs
-      POSTGRES_USER: user
-      POSTGRES_PASSWORD: password
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
-    healthcheck:
-      test: pg_isready -U user -d postgres
-      interval: 30s
-      timeout: 1s
-      retries: 3
-      start_interval: 1s
-      start_period: 5s
-
   migrator:
     build:
       context: .
@@ -25,11 +6,17 @@ services:
       args:
         BUILDKIT_INLINE_CACHE: 1
     environment:
-      PGCQRS_STORAGE_POSTGRES_URL: user:password@postgres:5432/pgcqrs?sslmode=disable
-    depends_on:
-      postgres:
-        condition: service_healthy
+      PGCQRS_STORAGE_POSTGRES_URL: pgcqrs:pgcqrs-password@pg18:5432/pgcqrs_pg18?sslmode=disable
+      # Open Telemetry Configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://pgcqrs_devxp_otel:4317"
+      OTEL_LOG_LEVEL: debug
+      OTEL_EXPORTER: grpc
+      OTEL_SERVICE_NAME: "pgcqrs-migrator"
+      ENV: "dev"
     command: ["primary"]
+    networks:
+      - internal
+      - platform
 
   pgcqrs:
     build:
@@ -39,12 +26,18 @@ services:
         BUILDKIT_INLINE_CACHE: 1
     restart: always
     environment:
-      PGCQRS_STORAGE_POSTGRES_URL: user:password@postgres:5432/pgcqrs?sslmode=disable
+      PGCQRS_STORAGE_POSTGRES_URL: pgcqrs:pgcqrs-password@pg18:5432/pgcqrs_pg18?sslmode=disable
       PGCQRS_LISTENER_ADDRESS: 0.0.0.0:9000
       PGCQRS_GRPC_LISTENER_ADDRESS: 0.0.0.0:9001
+      # Open Telemetry Configuration
+      OTEL_EXPORTER_OTLP_ENDPOINT: "http://pgcqrs_devxp_otel:4317"
+      OTEL_LOG_LEVEL: debug
+      OTEL_EXPORTER: grpc
+      OTEL_SERVICE_NAME: "pgcqrs"
+      ENV: "dev"
     ports:
-      - "9000:9000"
-      - "9001:9001"
+      - "26000:9000"
+      - "26001:9001"
     expose:
       - 9000
       - 9001
@@ -58,6 +51,17 @@ services:
       retries: 3
       start_interval: 1s
       start_period: 1s
+    networks:
+      - internal
+      - platform
 
 volumes:
   postgres_data:
+
+networks:
+  internal:
+    name: pgcqrs_dev
+    external: true
+  platform:
+    name: pgcqrs_platform
+    external: true

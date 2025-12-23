@@ -2,9 +2,6 @@
 /service
 /secrets
 /.idea
-/dev.sh
-/test.sh
-/publish.sh
 /pgcqrs
 build/
 arm64_darwin

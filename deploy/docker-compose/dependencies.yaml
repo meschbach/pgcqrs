@@ -1,0 +1,31 @@
+services:
+  pg18:
+    image: postgres:18
+    restart: always
+    environment:
+      POSTGRES_DB: postgres
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: password1234
+    ports:
+      - "26113:5432"
+    volumes:
+      - pgcqrs_dev_pg_data:/var/lib/postgresql/18/docker
+      - ./pg18/setup.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: pg_isready -U integ_tests -d integ_db
+      interval: 30s
+      timeout: 1s
+      retries: 3
+      start_interval: 1s
+      start_period: 5s
+    networks:
+      - pgcqrs
+
+volumes:
+  pgcqrs_dev_pg_data:
+
+networks:
+  pgcqrs:
+    name: pgcqrs_dev
+    labels:
+      com.meschbach/version: 1

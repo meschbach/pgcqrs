@@ -5,10 +5,10 @@
 replicaCount: 1
 
 image:
-  repository: "meschbach/pgcqrs"
+  repository: "ghcr.io/meschbach/pgcqrs"
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
-  tag: "0.8.4"
+  tag: "0.8.15"
 
 imagePullSecrets: []
 nameOverride: ""

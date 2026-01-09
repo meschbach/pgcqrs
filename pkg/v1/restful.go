@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
+	"strconv"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
 	"go.opentelemetry.io/otel/codes"
-	"net/http"
-	"strconv"
 )
 
 type HttpTransportLayer struct {
@@ -135,7 +136,7 @@ func (c *HttpTransportLayer) Submit(parent context.Context, app, stream, kind st
 }
 
 func (c *HttpTransportLayer) EnsureStream(parent context.Context, app string, stream string) error {
-	ctx, span := tracer.Start(parent, "pg-cqrs.v1:new-stream")
+	ctx, span := tracer.Start(parent, "pg-cqrs.v1:ensure-stream")
 	defer span.End()
 
 	url := c.BaseURL + "/v1/app/" + app + "/" + stream

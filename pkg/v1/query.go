@@ -2,11 +2,16 @@ package v1
 
 import (
 	"context"
+
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 )
 
-// Query constructs a new query builder for targeting the requested resource
+// Query constructs a new query builder for targeting the requested resource.
+//
+// Deprecated: This method is superseded by the `pgcqrs/pkg/v1/query2` package, which offers a more
+// flexible and powerful API for building complex queries. Users are encouraged to migrate
+// to `query2` for all new query implementations.
 func (s *Stream) Query() *QueryBuilder {
 	q := &QueryBuilder{stream: s}
 	q.kinds = make(map[string]*KindBuilder)

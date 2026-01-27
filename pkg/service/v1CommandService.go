@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"google.golang.org/grpc/codes"
@@ -14,7 +15,7 @@ func ProxyingCommandService(transport v1.Transport) *V1CommandService {
 	}
 }
 
-// V1CommandService wraps a v1 Transport mechanisms, effectively operating as a proxy to the service
+// V1CommandService wraps a v1 Transport mechanism, effectively operating as a proxy to the service
 type V1CommandService struct {
 	ipc.UnimplementedCommandServer
 	transport v1.Transport

@@ -3,15 +3,15 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"io/ioutil"
+	"net/http"
+
 	"github.com/gorilla/mux"
 	"github.com/meschbach/pgcqrs/internal/junk/restful"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
-	"io/ioutil"
-	"net/http"
-	"time"
 )
 
 func (s *service) v1QueryRoute() http.HandlerFunc {
@@ -167,7 +167,7 @@ func (s *service) v1SubmitByKind() http.HandlerFunc {
 func presentMetaAsEnvelope(meta pgMeta) v1.Envelope {
 	return v1.Envelope{
 		ID:   meta.ID,
-		When: meta.When.Time.Format(time.RFC3339Nano),
+		When: v1.FormatEnvelopeWhen(meta.When.Time),
 		Kind: meta.Kind,
 	}
 }

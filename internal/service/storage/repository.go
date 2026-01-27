@@ -4,13 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"time"
 )
 
 // Repository wraps a Postgres database as a document repository
@@ -77,7 +77,7 @@ func (r *Repository) Stream(ctx context.Context, ops []Operation) (onEachResult 
 				span.RecordError(err, trace.WithAttributes(attribute.Int("row", index)))
 				return index, err
 			}
-			out.Envelope.When = when.Time.Format(time.RFC3339Nano)
+			out.Envelope.When = v1.FormatEnvelopeWhen(when.Time)
 			sink <- out
 			index++
 		}

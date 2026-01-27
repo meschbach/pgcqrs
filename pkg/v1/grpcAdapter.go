@@ -6,6 +6,11 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"fmt"
+	"io"
+	"io/ioutil"
+	"os"
+	"path/filepath"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
 	"google.golang.org/grpc"
@@ -13,11 +18,6 @@ import (
 	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/status"
-	"io"
-	"io/ioutil"
-	"os"
-	"path/filepath"
-	"time"
 )
 
 var truthful = true
@@ -153,7 +153,7 @@ func (g *GrpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) (
 		}
 		output = append(output, Envelope{
 			ID:   out.Envelope.Id,
-			When: out.Envelope.When.AsTime().Format(time.RFC3339Nano),
+			When: FormatEnvelopeWhen(out.Envelope.When.AsTime()),
 			Kind: out.Envelope.Kind,
 		})
 	}
@@ -219,7 +219,7 @@ func (g *GrpcAdapter) Query(ctx context.Context, domain, stream string, query Wi
 		}
 		out.Matching = append(out.Matching, Envelope{
 			ID:   event.Envelope.Id,
-			When: event.Envelope.When.String(),
+			When: FormatEnvelopeWhen(event.Envelope.When.AsTime()),
 			Kind: event.Envelope.Kind,
 		})
 	}
@@ -267,7 +267,7 @@ func (g *GrpcAdapter) QueryBatch(ctx context.Context, domain, stream string, que
 		out.Page = append(out.Page, WireBatchResultPair{
 			Meta: Envelope{
 				ID:   *element.Id,
-				When: element.Envelope.When.AsTime().Format(time.RFC3339Nano),
+				When: FormatEnvelopeWhen(element.Envelope.When.AsTime()),
 				Kind: element.Envelope.Kind,
 			},
 			Data: element.Body,
@@ -335,7 +335,7 @@ func (g *GrpcAdapter) QueryBatchR2(ctx context.Context, domain, stream string, b
 		out.Results = append(out.Results, WireBatchR2Dispatch{
 			Envelope: Envelope{
 				ID:   element.Envelope.Id,
-				When: element.Envelope.When.AsTime().Format(time.RFC3339Nano),
+				When: FormatEnvelopeWhen(element.Envelope.When.AsTime()),
 				Kind: element.Envelope.Kind,
 			},
 			Event: element.Body,

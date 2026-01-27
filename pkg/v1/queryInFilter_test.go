@@ -2,13 +2,14 @@ package v1
 
 import (
 	"encoding/json"
+	"testing"
+	"time"
+
 	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
-	"time"
 )
 
 type exampleEvent struct {
@@ -89,7 +90,7 @@ func TestQueryInFilter(t *testing.T) {
 		eventID := submitted.ID
 		err = q.filter(ctx, Envelope{
 			ID:   eventID,
-			When: time.Now().Format(time.RFC3339Nano),
+			When: FormatEnvelopeWhen(time.Now()),
 			Kind: kind,
 		}, func(op int64, envelope Envelope, message json.RawMessage) {
 			seen = &event{

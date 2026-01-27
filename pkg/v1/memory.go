@@ -4,11 +4,12 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"time"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/meschbach/pgcqrs/pkg/v1/local"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
 )
 
 type memoryOp struct {
@@ -163,7 +164,7 @@ func (m *memory) AllEnvelopes(ctx context.Context, domain, stream string) ([]Env
 		for id, e := range event {
 			envelopes = append(envelopes, Envelope{
 				ID:   int64(id),
-				When: e.when.Format(time.StampMilli),
+				When: FormatEnvelopeWhen(e.when),
 				Kind: e.kind,
 			})
 		}

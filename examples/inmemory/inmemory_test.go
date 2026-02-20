@@ -2,10 +2,11 @@ package inmemory
 
 import (
 	"context"
-	"github.com/meschbach/pgcqrs/pkg/v1"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
+	"github.com/stretchr/testify/assert"
 )
 
 const (

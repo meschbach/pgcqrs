@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -70,8 +71,8 @@ func (s *storage) unsafeStore(parent context.Context, app, stream, kind string, 
 			attribute.String("pg-cqrs.stream", stream)))
 	defer span.End()
 
-	//kind upsert
-	//TODO: Find a better way to upsert in single round trip
+	// Kind upsert
+	// TODO: Find a better way to upsert in single round trip
 	r, err := s.query(ctx, `INSERT INTO events_kind(kind) VALUES ($1) ON CONFLICT DO NOTHING`, kind)
 	if err != nil {
 		span.RecordError(err)
@@ -137,7 +138,10 @@ func (s *storage) fetchPayload(parent context.Context, app, stream string, id in
 		}
 	}
 	var out []byte
-	return out, results.Scan(&out)
+	if err := results.Scan(&out); err != nil {
+		return nil, err
+	}
+	return out, nil
 }
 
 func (s *storage) ensureStream(parent context.Context, app, stream string) error {
@@ -173,7 +177,7 @@ func (s *storage) applyQuery(parent context.Context, app, stream string, params 
 	defer rows.Close()
 	span.AddEvent("has-results")
 
-	//convert query results to
+	// Convert query results to
 	count, err := s.dispatchRowMeta(ctx, rows, extractEvent, event)
 	if err != nil {
 		span.RecordError(err, trace.WithAttributes(attribute.Int("at-row", count)))

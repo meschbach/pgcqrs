@@ -2,8 +2,9 @@ package service
 
 import (
 	"context"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
-	"github.com/meschbach/pgcqrs/pkg/v1"
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
 func ProxyQueryService(transport v1.Transport) *V1QueryService {

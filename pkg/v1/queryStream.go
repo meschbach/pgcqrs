@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 )
 
@@ -25,7 +26,7 @@ func (q *QueryBuilder) Stream(parentContext context.Context) error {
 	ctx, span := tracer.Start(parentContext, "pgcqrs.StreamingQuery")
 	defer span.End()
 
-	//Produce request entity and setup post-processing
+	// Produce request entity and setup post-processing
 	handlers := &postProcessingHandlers{typedHandlers: make(map[string]OnStreamQueryResult)}
 	wireQuery := WireQuery{KindConstraint: nil}
 	for _, v := range q.kinds {
@@ -34,13 +35,13 @@ func (q *QueryBuilder) Stream(parentContext context.Context) error {
 	}
 	span.AddEvent("wire-entity assembled")
 
-	//Invocation
+	// Invocation
 	batchResult, err := q.stream.performBatchQuery(ctx, wireQuery)
 	if err != nil {
 		return err
 	}
 
-	//Dispatch results
+	// Dispatch results
 	span.AddEvent("dispatching results")
 	for _, data := range batchResult.Page {
 		if err := handlers.handle(ctx, data); err != nil {

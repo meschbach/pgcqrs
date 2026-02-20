@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/meschbach/go-junk-bucket/pkg/emitter"
 	"go.opentelemetry.io/otel/codes"
 )

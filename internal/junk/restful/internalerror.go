@@ -2,8 +2,9 @@ package restful
 
 import (
 	"fmt"
-	"go.opentelemetry.io/otel/trace"
 	"net/http"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 const debug = false

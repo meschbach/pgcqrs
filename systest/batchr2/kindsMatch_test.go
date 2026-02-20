@@ -3,16 +3,19 @@ package batchr2
 import (
 	"context"
 	"encoding/json"
+	"testing"
+
 	"github.com/go-faker/faker/v4"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/meschbach/pgcqrs/pkg/v1/query2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestKindMatch(t *testing.T) {
+	t.Parallel()
 	t.Run("Given a single kind with multiple records", func(t *testing.T) {
+		t.Parallel()
 		kind := faker.Name()
 
 		h := setupHarness()
@@ -27,6 +30,7 @@ func TestKindMatch(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Run("When searching for a single document then it is returned", func(t *testing.T) {
+			t.Parallel()
 			q := query2.NewQuery(h.stream)
 			found := 0
 			verifier := v1.EntityFunc[nestedStringDocument](func(ctx context.Context, e v1.Envelope, entity nestedStringDocument) {
@@ -43,6 +47,7 @@ func TestKindMatch(t *testing.T) {
 		})
 
 		t.Run("When multiple documents match, then all matched documents are returned", func(t *testing.T) {
+			t.Parallel()
 			q := query2.NewQuery(h.stream)
 			var matched []matchedPair
 			verifier := v1.EntityFunc[nestedStringDocument](func(ctx context.Context, e v1.Envelope, entity nestedStringDocument) {
@@ -59,6 +64,7 @@ func TestKindMatch(t *testing.T) {
 			}
 		})
 		t.Run("When kind without documents is given a match of another document", func(t *testing.T) {
+			t.Parallel()
 			count := 0
 			q := query2.NewQuery(h.stream)
 			q.OnKind(faker.Name()).Subset(nestedStringDocument{Root: middle.Root}).On(func(ctx context.Context, e v1.Envelope, rawJSON json.RawMessage) error {
@@ -71,6 +77,7 @@ func TestKindMatch(t *testing.T) {
 	})
 
 	t.Run("Given a repository with multiple document kinds stored", func(t *testing.T) {
+		t.Parallel()
 		h := setupHarness()
 		t.Cleanup(func() {
 			h.done()
@@ -82,6 +89,7 @@ func TestKindMatch(t *testing.T) {
 		doc2, doc2ID := genDoc(t, h, kind2)
 
 		t.Run("When given two kinds matching a document then each document is supplied once", func(t *testing.T) {
+			t.Parallel()
 			q := query2.NewQuery(h.stream)
 			documentCount := 0
 			q.OnKind(kind1).

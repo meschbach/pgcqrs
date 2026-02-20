@@ -18,7 +18,9 @@ type exampleEvent struct {
 }
 
 func TestQueryInFilter(t *testing.T) {
+	t.Parallel()
 	t.Run("subset filtering", func(t *testing.T) {
+		t.Parallel()
 		//
 		// Given a context
 		//

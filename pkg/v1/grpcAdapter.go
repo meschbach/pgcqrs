@@ -7,7 +7,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 
@@ -33,12 +32,15 @@ type GrpcAdapter struct {
 func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	var creds credentials.TransportCredentials
 	if caFile, has := os.LookupEnv("PGCQRS_GRPC_CA"); has {
-		//todo: figure out a better mechanism for secure transport
+		// todo: figure out a better mechanism for secure transport
 		certPath, err := filepath.Abs(caFile)
 		if err != nil {
 			return nil, err
 		}
-		cert, err := ioutil.ReadFile(certPath)
+		// linting has been disabled as it flags the variable passed in via the variable as being a security flaw
+		// in reality this should only be controlled by an operator.
+		// nolint
+		cert, err := os.ReadFile(certPath)
 		if err != nil {
 			return nil, err
 		}
@@ -54,7 +56,7 @@ func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 		creds = insecure.NewCredentials()
 	}
 
-	conn, err := grpc.Dial(url, grpc.WithTransportCredentials(creds), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
+	conn, err := grpc.NewClient(url, grpc.WithTransportCredentials(creds), grpc.WithStatsHandler(otelgrpc.NewClientHandler()))
 	if err != nil {
 		return nil, err
 	}
@@ -66,7 +68,7 @@ func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	}, nil
 }
 
-func (g *GrpcAdapter) EnsureStream(ctx context.Context, domain string, stream string) error {
+func (g *GrpcAdapter) EnsureStream(ctx context.Context, domain, stream string) error {
 	_, err := g.commands.CreateStream(ctx, &ipc.CreateStreamIn{Target: &ipc.DomainStream{
 		Domain: domain,
 		Stream: stream,
@@ -143,7 +145,7 @@ func (g *GrpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) (
 				return output, err
 			}
 		}
-		//still wondering when this might happen if err == nil
+		// Still wondering when this might happen if err == nil
 		if out == nil {
 			continue
 		}
@@ -161,11 +163,22 @@ func (g *GrpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) (
 }
 
 func (g *GrpcAdapter) Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error {
+	q, filtered := g.buildQueryRequest(domain, stream, query)
+
+	result, err := g.queries.Query(ctx, q)
+	if err != nil {
+		return err
+	}
+	out.Filtered = filtered
+	out.SubsetMatch = filtered
+	return g.receiveQueryResults(result, out)
+}
+
+func (g *GrpcAdapter) buildQueryRequest(domain, stream string, query WireQuery) (*ipc.QueryIn, bool) {
 	sendBack := &ipc.ResultInclude{
 		Envelope: yes,
 		Body:     no,
 	}
-	// ID for the add operation
 	targetOpID := int64(42)
 
 	q := &ipc.QueryIn{
@@ -173,7 +186,7 @@ func (g *GrpcAdapter) Query(ctx context.Context, domain, stream string, query Wi
 	}
 	filtered := true
 	for index, onKind := range query.KindConstraint {
-		//not dealing with specific property equality right now
+		// Not dealing with specific property equality right now
 		if onKind.Eq != nil {
 			filtered = false
 			constraint := &ipc.OnKindClause{
@@ -184,38 +197,38 @@ func (g *GrpcAdapter) Query(ctx context.Context, domain, stream string, query Wi
 			continue
 		}
 
-		constraint := &ipc.OnKindClause{
-			Kind: onKind.Kind,
-		}
+		constraint := g.buildKindConstraint(onKind, index, targetOpID, sendBack)
 		q.OnKind = append(q.OnKind, constraint)
-		if onKind.MatchSubset != nil {
-			constraint.Subsets = append(constraint.Subsets, &ipc.OnKindSubsetMatch{
-				Match: onKind.MatchSubset,
-				Op:    int64(index),
-				Style: sendBack,
-			})
-		}
-		//semantically, at least in some cases, if both of these are unset the system is expecting all within the kind
-		// to be queried for
+
 		if onKind.MatchSubset == nil && len(onKind.Eq) == 0 {
 			constraint.AllOp = &targetOpID
 		}
 	}
+	return q, filtered
+}
 
-	result, err := g.queries.Query(ctx, q)
-	if err != nil {
-		return err
+func (g *GrpcAdapter) buildKindConstraint(onKind KindConstraint, index int, targetOpID int64, sendBack *ipc.ResultInclude) *ipc.OnKindClause {
+	constraint := &ipc.OnKindClause{
+		Kind: onKind.Kind,
 	}
-	out.Filtered = filtered
-	out.SubsetMatch = filtered
+	if onKind.MatchSubset != nil {
+		constraint.Subsets = append(constraint.Subsets, &ipc.OnKindSubsetMatch{
+			Match: onKind.MatchSubset,
+			Op:    int64(index),
+			Style: sendBack,
+		})
+	}
+	return constraint
+}
+
+func (g *GrpcAdapter) receiveQueryResults(result ipc.Query_QueryClient, out *WireQueryResult) error {
 	for {
 		event, err := result.Recv()
 		if err != nil {
 			if err == io.EOF {
 				break
-			} else {
-				return err
 			}
+			return err
 		}
 		out.Matching = append(out.Matching, Envelope{
 			ID:   event.Envelope.Id,
@@ -285,30 +298,32 @@ func grpcMaybeWireOp(maybeOp *int) *int64 {
 }
 
 func (g *GrpcAdapter) QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error {
+	in, err := g.buildBatchR2Request(domain, stream, batch)
+	if err != nil {
+		return err
+	}
+
+	result, err := g.queries.Query(ctx, in)
+	if err != nil {
+		return err
+	}
+	return g.receiveBatchR2Results(result, out)
+}
+
+func (g *GrpcAdapter) buildBatchR2Request(domain, stream string, batch *WireBatchR2Request) (*ipc.QueryIn, error) {
+	if batch.Empty() {
+		return nil, nil
+	}
+
 	in := &ipc.QueryIn{
 		Events: &ipc.DomainStream{
 			Domain: domain,
 			Stream: stream,
 		},
 	}
-	if batch.Empty() {
-		return nil
-	}
 
 	for _, k := range batch.OnKinds {
-		kindClause := &ipc.OnKindClause{
-			Kind: k.Kind,
-		}
-		if k.All != nil {
-			kindClause.AllOp = grpcMaybeWireOp(k.All)
-		}
-		for _, match := range k.Match {
-			subset := &ipc.OnKindSubsetMatch{
-				Match: match.Subset,
-				Op:    int64(match.Op),
-			}
-			kindClause.Subsets = append(kindClause.Subsets, subset)
-		}
+		kindClause := g.buildBatchR2KindClause(k)
 		in.OnKind = append(in.OnKind, kindClause)
 	}
 	for _, i := range batch.OnID {
@@ -317,19 +332,34 @@ func (g *GrpcAdapter) QueryBatchR2(ctx context.Context, domain, stream string, b
 			Op: int64(i.Op),
 		})
 	}
+	return in, nil
+}
 
-	result, err := g.queries.Query(ctx, in)
-	if err != nil {
-		return err
+func (g *GrpcAdapter) buildBatchR2KindClause(k WireBatchR2KindQuery) *ipc.OnKindClause {
+	kindClause := &ipc.OnKindClause{
+		Kind: k.Kind,
 	}
+	if k.All != nil {
+		kindClause.AllOp = grpcMaybeWireOp(k.All)
+	}
+	for _, match := range k.Match {
+		subset := &ipc.OnKindSubsetMatch{
+			Match: match.Subset,
+			Op:    int64(match.Op),
+		}
+		kindClause.Subsets = append(kindClause.Subsets, subset)
+	}
+	return kindClause
+}
+
+func (g *GrpcAdapter) receiveBatchR2Results(result ipc.Query_QueryClient, out *WireBatchR2Result) error {
 	for {
 		element, err := result.Recv()
 		if err != nil {
 			if err == io.EOF {
 				return nil
-			} else {
-				return err
 			}
+			return err
 		}
 
 		out.Results = append(out.Results, WireBatchR2Dispatch{
@@ -369,12 +399,6 @@ func (g *GrpcAdapter) Meta(ctx context.Context) (WireMetaV1, error) {
 		result.Domains = append(result.Domains, *d)
 	}
 	return result, nil
-}
-
-var ignoreErrors = []error{
-	context.Canceled,
-	context.DeadlineExceeded,
-	io.EOF,
 }
 
 func (g *GrpcAdapter) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {

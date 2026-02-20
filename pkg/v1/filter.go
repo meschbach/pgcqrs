@@ -3,9 +3,10 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"strings"
+
 	"github.com/elgs/gojq"
 	"github.com/meschbach/pgcqrs/pkg/v1/local"
-	"strings"
 )
 
 type filterLoader interface {
@@ -16,31 +17,49 @@ func filter(ctx context.Context, loader filterLoader, query WireQuery, e Envelop
 	if len(query.KindConstraint) == 0 {
 		return true, nil
 	}
-	for _, c := range query.KindConstraint {
-		if e.Kind != c.Kind {
-			continue
-		}
-		if len(c.Eq) > 0 {
-			match, err := filterMatchedProperties(ctx, loader, c, e)
-			if err != nil {
-				return false, err
-			}
-			if !match {
-				return false, nil
-			}
-		}
-		if len(c.MatchSubset) > 0 {
-			match, err := filterSubsetMatch(ctx, loader, c, e)
-			if err != nil {
-				return false, err
-			}
-			if !match {
-				return false, nil
-			}
-		}
+
+	constraint := findMatchingConstraint(e.Kind, query.KindConstraint)
+	if constraint == nil {
+		return false, nil
+	}
+
+	eqMatch, err := applyEqFilter(ctx, loader, constraint, e)
+	if err != nil || !eqMatch {
+		return eqMatch, err
+	}
+	return applySubsetFilter(ctx, loader, constraint, e)
+}
+
+func applyEqFilter(ctx context.Context, loader filterLoader, constraint *KindConstraint, e Envelope) (bool, error) {
+	if !hasEqConstraints(constraint) {
 		return true, nil
 	}
-	return false, nil
+	return filterMatchedProperties(ctx, loader, *constraint, e)
+}
+
+func applySubsetFilter(ctx context.Context, loader filterLoader, constraint *KindConstraint, e Envelope) (bool, error) {
+	if !hasSubsetConstraints(constraint) {
+		return true, nil
+	}
+	return filterSubsetMatch(ctx, loader, *constraint, e)
+}
+
+func hasEqConstraints(c *KindConstraint) bool {
+	return len(c.Eq) > 0
+}
+
+func hasSubsetConstraints(c *KindConstraint) bool {
+	return len(c.MatchSubset) > 0
+}
+
+func findMatchingConstraint(kind string, constraints []KindConstraint) *KindConstraint {
+	for _, c := range constraints {
+		if kind == c.Kind {
+			constraint := c
+			return &constraint
+		}
+	}
+	return nil
 }
 
 func filterMatchedProperties(ctx context.Context, loader filterLoader, c KindConstraint, e Envelope) (bool, error) {

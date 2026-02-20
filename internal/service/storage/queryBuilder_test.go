@@ -1,10 +1,11 @@
 package storage
 
 import (
+	"testing"
+
 	"github.com/go-faker/faker/v4"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
-	"testing"
 )
 
 func TestKindConstraint(t *testing.T) {
@@ -30,7 +31,7 @@ func TestKindConstraint(t *testing.T) {
 		translateKindConstraint(out, v1.KindConstraint{
 			Kind: kind,
 			Eq: []v1.WireMatcherV1{
-				v1.WireMatcherV1{
+				{
 					Property: []string{prop},
 					Value:    []string{value},
 				},
@@ -70,7 +71,7 @@ func TestQueryTranslator(t *testing.T) {
 
 		input := v1.WireQuery{
 			KindConstraint: []v1.KindConstraint{
-				v1.KindConstraint{Kind: kind},
+				{Kind: kind},
 			},
 		}
 		query := TranslateQuery(app, stream, input, false)
@@ -92,8 +93,8 @@ func TestQueryTranslator(t *testing.T) {
 
 		input := v1.WireQuery{
 			KindConstraint: []v1.KindConstraint{
-				v1.KindConstraint{Kind: kind2},
-				v1.KindConstraint{Kind: kind1},
+				{Kind: kind2},
+				{Kind: kind1},
 			},
 		}
 		query := TranslateQuery(app, stream, input, false)

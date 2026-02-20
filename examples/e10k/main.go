@@ -3,10 +3,11 @@ package main
 import (
 	"context"
 	"fmt"
-	"github.com/meschbach/go-junk-bucket/pkg"
-	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"strconv"
 	"time"
+
+	"github.com/meschbach/go-junk-bucket/pkg"
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
 const app = "example.largeStream"

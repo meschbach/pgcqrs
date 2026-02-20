@@ -23,7 +23,7 @@ type AllEnvelopes struct {
 	Envelopes []Envelope `json:"envelopes"`
 }
 
-func (c *HttpTransportLayer) post(parent context.Context, opName, resource string, requestEntity any, responseEntity any) error {
+func (c *HttpTransportLayer) post(parent context.Context, opName, resource string, requestEntity, responseEntity any) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:"+opName)
 	defer span.End()
 
@@ -38,11 +38,13 @@ func (c *HttpTransportLayer) post(parent context.Context, opName, resource strin
 		return err
 	}
 
+	// todo: investigate SSRF
+	// nolint
 	resp, err := c.wire.Do(req)
 	if err != nil {
 		return &TransportError{err}
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != 200 {
 		span.SetStatus(codes.Error, "unexpected response code")
@@ -61,16 +63,18 @@ func (c *HttpTransportLayer) get(parent context.Context, opName, resource string
 	defer span.End()
 
 	url := c.BaseURL + resource
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, http.NoBody)
 	if err != nil {
 		return err
 	}
 
+	// todo: review in closer detail for SSRF
+	// nolint
 	resp, err := c.wire.Do(req)
 	if err != nil {
 		return &TransportError{err}
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode != 200 {
 		span.SetStatus(codes.Error, "unexpected response code")
@@ -111,18 +115,17 @@ func (c *HttpTransportLayer) Submit(parent context.Context, app, stream, kind st
 		return nil, err
 	}
 
+	// todo: review in more detail
+	// nolint
 	resp, err := c.wire.Do(req)
 	if err != nil {
 		return nil, &TransportError{err}
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode == 404 {
 		span.SetStatus(codes.Error, "unexpected 404")
-		return nil, &BadResponseCode{
-			URL:  url,
-			Code: resp.StatusCode,
-		}
+		return nil, errors.Join(&BadResponseCode{URL: url, Code: resp.StatusCode}, err)
 	}
 
 	out := &SubmitReply{}
@@ -132,24 +135,27 @@ func (c *HttpTransportLayer) Submit(parent context.Context, app, stream, kind st
 		span.SetStatus(codes.Error, "decoding error")
 		return nil, err
 	}
-	return &Submitted{ID: out.Id}, nil
+	return &Submitted{ID: out.Id}, err
 }
 
-func (c *HttpTransportLayer) EnsureStream(parent context.Context, app string, stream string) error {
+func (c *HttpTransportLayer) EnsureStream(parent context.Context, app, stream string) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:ensure-stream")
 	defer span.End()
 
 	url := c.BaseURL + "/v1/app/" + app + "/" + stream
-	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, url, http.NoBody)
 	if err != nil {
 		return err
 	}
 
+	// todo: investigate SSRF
+	// nolint
 	resp, err := c.wire.Do(req)
 	if err != nil {
 		return &TransportError{err}
 	}
-	defer resp.Body.Close()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+
 	if resp.StatusCode != 200 {
 		span.SetStatus(codes.Error, "unexpected response code")
 		return &BadResponseCode{
@@ -160,7 +166,7 @@ func (c *HttpTransportLayer) EnsureStream(parent context.Context, app string, st
 	return nil
 }
 
-func (c *HttpTransportLayer) GetEvent(parent context.Context, app string, stream string, id int64, payload interface{}) error {
+func (c *HttpTransportLayer) GetEvent(parent context.Context, app, stream string, id int64, payload interface{}) error {
 	url := "/v1/app/" + app + "/" + stream + "/payload/" + strconv.FormatInt(id, 10)
 	return c.get(parent, "get-payload", url, func(d *json.Decoder) error {
 		return d.Decode(payload)

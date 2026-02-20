@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+
 	"github.com/meschbach/pgcqrs/internal/junk"
 )
 
@@ -17,7 +18,7 @@ func (s *System) MustStream(ctx context.Context, domain, stream string) *Stream 
 
 // Stream obtains the event stream for a given domain (app) and stream.  If the domain + stream does not exist yet then
 // one is created.
-func (s *System) Stream(ctx context.Context, domain string, stream string) (*Stream, error) {
+func (s *System) Stream(ctx context.Context, domain, stream string) (*Stream, error) {
 	if err := s.Transport.EnsureStream(ctx, domain, stream); err != nil {
 		return nil, err
 	}

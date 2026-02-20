@@ -3,6 +3,7 @@ package query2
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )

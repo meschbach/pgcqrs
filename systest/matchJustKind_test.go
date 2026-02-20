@@ -2,11 +2,12 @@ package systest
 
 import (
 	"context"
+	"testing"
+
 	"github.com/go-faker/faker/v4"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 type Example struct {
@@ -15,7 +16,9 @@ type Example struct {
 
 // Tests the systems capability to use an `or` clause between two matches.
 func TestMultiKindMatch(t *testing.T) {
+	t.Parallel()
 	t.Run("With V1 Client, With two documents of the same kind", func(t *testing.T) {
+		t.Parallel()
 		harness := setupHarness()
 		ctx := harness.ctx
 		t.Cleanup(func() {
@@ -38,9 +41,12 @@ func TestMultiKindMatch(t *testing.T) {
 		require.NoError(t, err)
 
 		t.Run("When matching on kind only, Then it matches both", func(t *testing.T) {
+			t.Parallel()
 			var matchedEnvelopes []v1.Envelope
 			var matched []Example
 
+			// We are explicitly testing legacy invocations here, so deprecation does not count.
+			// nolint
 			q := stream.Query()
 			q.WithKind(kind1).On(v1.EntityFunc[Example](func(ctx context.Context, e v1.Envelope, entity Example) {
 				matchedEnvelopes = append(matchedEnvelopes, e)
@@ -59,7 +65,10 @@ func TestMultiKindMatch(t *testing.T) {
 		})
 
 		t.Run("When matching on matching kind and field, then it matches the document", func(t *testing.T) {
+			t.Parallel()
 			var matched []matchedPair[Example]
+			// We are explicitly testing legacy invocations here, so deprecation does not count.
+			// nolint
 			q := stream.Query()
 			q.WithKind(kind1).Match(Example{Value: value1}).On(v1.EntityFunc[Example](func(ctx context.Context, e v1.Envelope, entity Example) {
 				matched = append(matched, matchedPair[Example]{

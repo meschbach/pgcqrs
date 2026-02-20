@@ -2,12 +2,13 @@ package batchr2
 
 import (
 	"context"
+	"testing"
+
 	"github.com/go-faker/faker/v4"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/meschbach/pgcqrs/pkg/v1/query2"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 type event[V any] struct {
@@ -29,9 +30,11 @@ func (r *resultAccumulator) OnEvent() v1.OnStreamQueryResult {
 }
 
 func TestIDMatch(t *testing.T) {
+	t.Parallel()
 	_, ctx, stream := setupHarnessT(t)
 
 	t.Run("Given a stream with several events, When querying for a single ID, then that ID is returned", func(t *testing.T) {
+		t.Parallel()
 		kind := faker.FirstName()
 		doc2 := SimpleDocument{StringValue: faker.Name()}
 		_, err := stream.Submit(ctx, kind, SimpleDocument{StringValue: faker.Name()})

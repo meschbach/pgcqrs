@@ -1,0 +1,83 @@
+version: "2"
+
+run:
+  timeout: 10m
+  tests: true
+
+linters:
+  # todo: fix these
+  exclusions:
+    paths:
+      - cmd
+      - examples
+  enable:
+    # Core
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    
+    # Security
+    - gosec
+    
+    # Code quality
+    - gocritic
+    - gocyclo
+    - dupl
+    - misspell
+    - dogsled
+    - makezero
+    - prealloc
+    
+    # Testing
+# parallel test wreaks havoc with the MemoryHarness
+#    - paralleltest
+    - testifylint
+    
+    # Modern practices
+    - exhaustive
+    - forbidigo
+  settings:
+    gocyclo:
+      min-complexity: 8
+    gosec: {}
+    dupl:
+      threshold: 80
+    misspell:
+      locale: US
+    forbidigo:
+      forbid:
+        - pkg: fmt\.Print.*
+          msg: "Use structured logging instead"
+      exclude-glob:
+        - 'cmd/**/*.go'
+        - '**/.pb.go'
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - experimental
+        - opinionated
+        - performance
+        - style
+      disabled-checks:
+        - dupImport
+        - ifElseChain
+        - octalLiteral
+        - whyNoLint
+        - wrapperFunc
+
+    errcheck:
+      check-type-assertions: true
+      check-blank: false  # Allow _ = errors for explicit ignoring
+      exclude-functions:
+        - (fmt\.Fprintf).*outputWriter  # CLI user output is legitimate
+
+#    paralleltest:
+#      ignore-missing-subtests: false  # Require explicit t.Parallel() calls for all tests
+
+formatters:
+  enable:
+    - gofmt
+    - goimports

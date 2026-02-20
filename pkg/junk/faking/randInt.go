@@ -1,9 +1,13 @@
 package faking
 
-import "github.com/go-faker/faker/v4"
+import (
+	"math/rand/v2"
 
-func RandIntRange(min, max int) int {
-	values, err := faker.RandomInt(min, max, 1)
+	"github.com/go-faker/faker/v4"
+)
+
+func RandIntRange(minimum, maximum int) int {
+	values, err := faker.RandomInt(minimum, maximum, 1)
 	if err != nil {
 		panic(err)
 	}
@@ -11,5 +15,8 @@ func RandIntRange(min, max int) int {
 }
 
 func RandInt() int {
-	return RandIntRange(-10000, 10000)
+	// Linter wants cryptographically secure random.  In a testing context we do not require that.
+	// nolint
+	oversized := rand.Int64()
+	return int(oversized)
 }

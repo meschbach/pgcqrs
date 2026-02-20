@@ -2,10 +2,11 @@ package v1
 
 import (
 	"context"
+	"testing"
+
 	"github.com/go-faker/faker/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 func TestQueryStream(t *testing.T) {

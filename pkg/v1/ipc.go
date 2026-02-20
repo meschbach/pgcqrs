@@ -3,7 +3,7 @@ package v1
 import "time"
 
 type Submitted struct {
-	//ID is the Envelope ID of the event.
+	// ID is the Envelope ID of the event.
 	ID int64
 }
 

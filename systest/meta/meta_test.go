@@ -2,11 +2,12 @@ package meta
 
 import (
 	"context"
+	"testing"
+
 	"github.com/go-faker/faker/v4"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"go.opentelemetry.io/otel"
-	"testing"
 )
 
 var tracer = otel.Tracer("systest.meta")
@@ -19,10 +20,13 @@ func tracedTest(t *testing.T, parent context.Context, name string, test func(t *
 }
 
 func TestMeta(t *testing.T) {
+	t.Parallel()
 	t.Run("Given a system", func(t *testing.T) {
+		t.Parallel()
 		_, ctx, sys := setupHarnessT(t)
 
 		t.Run("When creating a new stream", func(t *testing.T) {
+			t.Parallel()
 			domain := faker.FirstName()
 			stream := faker.FirstName()
 
@@ -36,6 +40,7 @@ func TestMeta(t *testing.T) {
 			})
 
 			t.Run("Then is listable under the application", func(t *testing.T) {
+				t.Parallel()
 				t.Skip("TODO")
 			})
 		})

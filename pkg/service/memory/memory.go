@@ -1,8 +1,9 @@
 package memory
 
 import (
-	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"sync"
+
+	"github.com/meschbach/pgcqrs/pkg/ipc"
 )
 
 type core struct {

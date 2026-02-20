@@ -2,6 +2,7 @@ package query2
 
 import (
 	"context"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
@@ -51,20 +52,11 @@ func (h *handlers) registerOptional(processor v1.OnStreamQueryResult) *int {
 // StreamBatch issues the given query as a batch request to the underlying stream.  Meaning the interaction with the
 // underlying data store happens in a single request.  Results processing will occur in a stream like semantic.
 func (q *Query) StreamBatch(ctx context.Context) error {
-	handlers := &handlers{}
+	handlers, request, err := q.buildBatchRequest(ctx)
+	if err != nil {
+		return err
+	}
 
-	request := &v1.WireBatchR2Request{}
-	for _, c := range q.kinds {
-		if err := c.prepareRequest(ctx, request, handlers); err != nil {
-			return err
-		}
-	}
-	for _, i := range q.ids {
-		if err := i.prepareRequest(ctx, request, handlers); err != nil {
-			return err
-		}
-	}
-	// Short circuit the request when there are no usable query elements
 	if request.Empty() {
 		return nil
 	}
@@ -73,6 +65,27 @@ func (q *Query) StreamBatch(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	return q.processBatchResults(ctx, handlers, reply)
+}
+
+func (q *Query) buildBatchRequest(ctx context.Context) (*handlers, *v1.WireBatchR2Request, error) {
+	handlers := &handlers{}
+	request := &v1.WireBatchR2Request{}
+
+	for _, c := range q.kinds {
+		if err := c.prepareRequest(ctx, request, handlers); err != nil {
+			return nil, nil, err
+		}
+	}
+	for _, i := range q.ids {
+		if err := i.prepareRequest(ctx, request, handlers); err != nil {
+			return nil, nil, err
+		}
+	}
+	return handlers, request, nil
+}
+
+func (q *Query) processBatchResults(ctx context.Context, handlers *handlers, reply *v1.WireBatchR2Result) error {
 	for _, result := range reply.Results {
 		handler := handlers.registered[result.Op]
 		if err := handler(ctx, result.Envelope, result.Event); err != nil {
@@ -96,16 +109,11 @@ func (q *Query) Watch(ctx context.Context) (pump *Watch, setup error) {
 			return nil, err
 		}
 	}
-	//for _, i := range q.ids {
-	//	if err := i.prepareRequest(ctx, request, handlers); err != nil {
-	//		return err
-	//	}
-	//}
 
 	// Short circuit the request when there are no usable query elements
-	//if request.Empty() {
+	// if request.Empty() {
 	//	return nil
-	//}
+	// }
 
 	wirePump, err := q.stream.Watch(ctx, request)
 	if err != nil {

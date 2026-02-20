@@ -2,13 +2,13 @@ package v1
 
 import (
 	"context"
+	"testing"
+	"time"
+
 	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"math/rand"
-	"testing"
-	"time"
 )
 
 func TestKindFilter(t *testing.T) {
@@ -66,10 +66,10 @@ func TestMatchFilter(t *testing.T) {
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
 		kind1 := faker.Word()
 		kind2 := faker.Word()
-		target := rand.Int()
+		target := faking.RandInt()
 
-		h.stream.MustSubmit(ctx, kind1, MatcherEntity{IntValue: rand.Int()})
-		h.stream.MustSubmit(ctx, kind2, MatcherEntity{IntValue: rand.Int()})
+		h.stream.MustSubmit(ctx, kind1, MatcherEntity{IntValue: faking.RandInt()})
+		h.stream.MustSubmit(ctx, kind2, MatcherEntity{IntValue: faking.RandInt()})
 		reply := h.stream.MustSubmit(ctx, kind1, MatcherEntity{IntValue: target})
 		h.stream.MustSubmit(ctx, kind2, MatcherEntity{IntValue: target})
 

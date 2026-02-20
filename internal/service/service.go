@@ -4,6 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/http"
+	"os"
+	"strconv"
+	"time"
+
 	"github.com/gorilla/mux"
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/meschbach/pgcqrs/internal/junk"
@@ -11,10 +16,6 @@ import (
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"github.com/thejerf/suture/v4"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
-	"net/http"
-	"os"
-	"strconv"
-	"time"
 )
 
 type service struct {
@@ -76,6 +77,11 @@ func (s *service) routes() http.Handler {
 
 		bytes, err := s.storage.fetchPayload(request.Context(), app, stream, id)
 		junk.Must(err)
+		header := writer.Header()
+		header.Set("Content-Type", "application/json")
+		// We're writing JSON from the database directly to the wire; the only way we could make this better is to avoid
+		// the copying from the database onto the wire.
+		// nolint
 		_, err = writer.Write(bytes)
 		junk.Must(err)
 	})
@@ -110,7 +116,7 @@ func (s *service) serve(ctx context.Context, config *ListenerConfig) {
 	}
 }
 
-func Serve(ctx context.Context, cfg Config) {
+func Serve(ctx context.Context, cfg *Config) {
 	fmt.Println("Starting PG-CQRS Service")
 	component, err := cfg.Telemetry.Start(ctx)
 	if err != nil {

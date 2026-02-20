@@ -3,8 +3,9 @@ package query2
 import (
 	"context"
 	"errors"
-	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"time"
+
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
 type Watch struct {

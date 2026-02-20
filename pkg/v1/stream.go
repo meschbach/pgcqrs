@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+
 	"github.com/meschbach/go-junk-bucket/pkg/fx"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	"go.opentelemetry.io/otel/attribute"

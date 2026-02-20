@@ -2,10 +2,11 @@ package service
 
 import (
 	"context"
+	"time"
+
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"google.golang.org/protobuf/types/known/timestamppb"
-	"time"
 )
 
 // grpcResultStream handles streaming query results over gRPC.
@@ -17,7 +18,7 @@ type grpcResultStream struct {
 }
 
 // runTranslator processes operation results from the storage layer and translates them into gRPC messages.
-// It continuously listens for new results until the context is cancelled or an error occurs.
+// It continuously listens for new results until the context is canceled or an error occurs.
 // The results are received through onEachResult channel and any errors are sent to onDone channel.
 func (g *grpcResultStream) runTranslator(parent context.Context, onEachResult <-chan storage2.OperationResult, onDone chan error) {
 	defer close(onDone)
@@ -54,7 +55,7 @@ func (g *grpcResultStream) pushTranslatorMessage(parent context.Context, r stora
 	}
 	g.lastSeenID = r.Envelope.ID
 
-	//todo(optimization): we are translating from PG's time to a string to gRPC.  PG gives us a time.Time.
+	// TODO(optimization): we are translating from PG's time to a string to gRPC.  PG gives us a time.Time.
 	whenTime, err := time.Parse(time.RFC3339Nano, r.Envelope.When)
 	if err != nil {
 		return err

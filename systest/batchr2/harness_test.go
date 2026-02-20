@@ -2,12 +2,13 @@ package batchr2
 
 import (
 	"context"
+	"os"
+	"testing"
+
 	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/require"
-	"os"
-	"testing"
 )
 
 type harness struct {
@@ -65,8 +66,8 @@ type nestedStringDocument struct {
 	Nested *NestedString `json:"nested,omitempty"`
 }
 
-func genDoc(t *testing.T, h *harness, kind string) (nestedStringDocument, int64) {
-	doc := nestedStringDocument{
+func genDoc(t *testing.T, h *harness, kind string) (doc nestedStringDocument, id int64) {
+	doc = nestedStringDocument{
 		Root: faker.Name(),
 		Nested: &NestedString{
 			Value: faker.Name(),

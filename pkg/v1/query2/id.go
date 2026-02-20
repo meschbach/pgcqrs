@@ -2,6 +2,7 @@ package query2
 
 import (
 	"context"
+
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 

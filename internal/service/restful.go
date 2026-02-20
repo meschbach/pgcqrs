@@ -3,7 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 
 	"github.com/gorilla/mux"
@@ -147,7 +147,7 @@ func (s *service) v1SubmitByKind() http.HandlerFunc {
 		stream := vars["stream"]
 		kind := vars["kind"]
 
-		all, err := ioutil.ReadAll(request.Body)
+		all, err := io.ReadAll(request.Body)
 		if err != nil {
 			restful.ClientError(writer, request, err)
 			return
@@ -176,36 +176,16 @@ func (s *service) v1Meta() http.HandlerFunc {
 	return func(writer http.ResponseWriter, request *http.Request) {
 		ctx := request.Context()
 		var out v1.WireMetaV1
-		rows, err := s.storage.query(ctx, "SELECT distinct app FROM events_stream")
+
+		apps, err := s.listApps(ctx)
 		if err != nil {
 			restful.InternalError(writer, request, err)
 			return
 		}
 
-		for rows.Next() {
-			var app string
-			if err := rows.Scan(&app); err != nil {
-				restful.InternalError(writer, request, err)
-				return
-			}
-
-			var streams []string
-			queryStream := func() error {
-				streamRows, err := s.storage.query(ctx, "SELECT stream FROM events_stream WHERE app = $1", app)
-				if err != nil {
-					return err
-				}
-				defer streamRows.Close()
-				for streamRows.Next() {
-					var stream string
-					if err := streamRows.Scan(&stream); err != nil {
-						return err
-					}
-					streams = append(streams, stream)
-				}
-				return nil
-			}
-			if err := queryStream(); err != nil {
+		for _, app := range apps {
+			streams, err := s.queryStreamsForApp(ctx, app)
+			if err != nil {
 				restful.InternalError(writer, request, err)
 				return
 			}
@@ -214,11 +194,46 @@ func (s *service) v1Meta() http.HandlerFunc {
 				Streams: streams,
 			})
 		}
-		if err := rows.Err(); err != nil {
-			restful.InternalError(writer, request, err)
-			return
-		}
 
 		restful.Ok(writer, request, out)
 	}
+}
+
+func (s *service) listApps(ctx context.Context) ([]string, error) {
+	var apps []string
+	rows, err := s.storage.query(ctx, "SELECT distinct app FROM events_stream")
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	for rows.Next() {
+		var app string
+		if err := rows.Scan(&app); err != nil {
+			return nil, err
+		}
+		apps = append(apps, app)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return apps, nil
+}
+
+func (s *service) queryStreamsForApp(ctx context.Context, app string) ([]string, error) {
+	var streams []string
+	streamRows, err := s.storage.query(ctx, "SELECT stream FROM events_stream WHERE app = $1", app)
+	if err != nil {
+		return nil, err
+	}
+	defer streamRows.Close()
+
+	for streamRows.Next() {
+		var stream string
+		if err := streamRows.Scan(&stream); err != nil {
+			return nil, err
+		}
+		streams = append(streams, stream)
+	}
+	return streams, nil
 }

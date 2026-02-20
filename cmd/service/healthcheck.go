@@ -3,9 +3,10 @@ package main
 import (
 	"context"
 	"fmt"
+	"time"
+
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/spf13/cobra"
-	"time"
 )
 
 func healthCheckCommand() *cobra.Command {

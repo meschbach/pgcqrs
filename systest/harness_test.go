@@ -2,10 +2,11 @@ package systest
 
 import (
 	"context"
+	"os"
+
 	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
-	"os"
 )
 
 type harness struct {

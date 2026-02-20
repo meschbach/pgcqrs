@@ -66,7 +66,6 @@ func (g *grpcQuery) ListStreams(ctx context.Context, in *ipc.ListStreamsIn) (*ip
 		var app, stream string
 		if err := rows.Scan(&app, &stream); err != nil {
 			span.SetStatus(codes.Error, "failed to extract results")
-			//return different
 			return nil, err
 		}
 
@@ -89,22 +88,22 @@ func (g *grpcQuery) Get(ctx context.Context, in *ipc.GetIn) (*ipc.GetOut, error)
 	return out, nil
 }
 
-func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
+func buildQueryOps(events *ipc.DomainStream, in *ipc.QueryIn) ([]storage2.Operation, error) {
 	var ops []storage2.Operation
 
 	for _, kClause := range in.OnKind {
 		if kClause.AllOp != nil {
 			ops = append(ops, &storage2.EachKind{
-				App:    in.Events.Domain,
-				Stream: in.Events.Stream,
+				App:    events.Domain,
+				Stream: events.Stream,
 				Op:     int(*kClause.AllOp),
 				Kind:   kClause.Kind,
 			})
 		}
 		for _, subsetClause := range kClause.Subsets {
 			ops = append(ops, &storage2.MatchSubset{
-				App:    in.Events.Domain,
-				Stream: in.Events.Stream,
+				App:    events.Domain,
+				Stream: events.Stream,
 				Op:     int(subsetClause.Op),
 				Kind:   kClause.Kind,
 				Subset: json.RawMessage(subsetClause.Match),
@@ -112,19 +111,30 @@ func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 		}
 	}
 	for _, idClause := range in.OnID {
-		op := storage2.WithMatchID(in.Events.Domain, in.Events.Stream, idClause.Id, int(idClause.Op))
+		op := storage2.WithMatchID(events.Domain, events.Stream, idClause.Id, int(idClause.Op))
 		ops = append(ops, op)
 	}
 	if eachClause := in.OnEach; eachClause != nil {
 		op := &storage2.AllStreamEvents{
-			Domain: in.Events.Domain,
-			Stream: in.Events.Stream,
+			Domain: events.Domain,
+			Stream: events.Stream,
 			Op:     int(eachClause.Op),
 		}
 		ops = append(ops, op)
 	}
 
 	if len(ops) == 0 {
+		return nil, nil
+	}
+	return ops, nil
+}
+
+func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
+	ops, err := buildQueryOps(in.Events, in)
+	if err != nil {
+		return err
+	}
+	if ops == nil {
 		return nil
 	}
 
@@ -141,12 +151,12 @@ func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 		defer close(translateOut)
 		onError := func(err error) {
 			translateOut <- translateResult{problem: err}
-			//discard all remaining results
+			// discard all remaining results
 			for range results {
 			}
 		}
 		for r := range results {
-			//todo(optimization): we are translating from PG's time to a string to gRPC.  PG gives us a time.Time.
+			// todo(optimization): we are translating from PG's time to a string to gRPC.  PG gives us a time.Time.
 			whenTime, err := time.Parse(time.RFC3339Nano, r.Envelope.When)
 			if err != nil {
 				onError(err)
@@ -186,75 +196,24 @@ func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 
 func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 	ctx := out.Context()
-	var ops []storage2.Operation
 
-	for _, kClause := range in.OnKind {
-		if kClause.AllOp != nil {
-			ops = append(ops, &storage2.EachKind{
-				App:    in.Events.Domain,
-				Stream: in.Events.Stream,
-				Op:     int(*kClause.AllOp),
-				Kind:   kClause.Kind,
-			})
-		}
-		for _, subsetClause := range kClause.Subsets {
-			ops = append(ops, &storage2.MatchSubset{
-				App:    in.Events.Domain,
-				Stream: in.Events.Stream,
-				Op:     int(subsetClause.Op),
-				Kind:   kClause.Kind,
-				Subset: json.RawMessage(subsetClause.Match),
-			})
-		}
+	ops, err := buildQueryOps(in.Events, in)
+	if err != nil {
+		return err
 	}
-	for _, idClause := range in.OnID {
-		op := storage2.WithMatchID(in.Events.Domain, in.Events.Stream, idClause.Id, int(idClause.Op))
-		ops = append(ops, op)
-	}
-	if eachClause := in.OnEach; eachClause != nil {
-		op := &storage2.AllStreamEvents{
-			Domain: in.Events.Domain,
-			Stream: in.Events.Stream,
-			Op:     int(eachClause.Op),
-		}
-		ops = append(ops, op)
-	}
-
-	if len(ops) == 0 {
+	if ops == nil {
 		return nil
 	}
 
-	//
-	// translator will send contents of results to the target client
-	//
 	results := make(chan storage2.OperationResult, 128)
 	translateOut := make(chan error, 1)
 	stream := &grpcResultStream{out: out}
 	go stream.runTranslator(ctx, results, translateOut)
 
-	//
-	// Watch messages
-	//
 	queryAgain := make(chan interface{}, 1)
 	queryAgain <- nil
-	listener := func(ctx context.Context, storage EventStorageEvent) error {
-		select {
-		case <-ctx.Done():
-			return ctx.Err()
-		case queryAgain <- nil:
-			return nil
-		default:
-			//todo: in the future the queue should be shutdown
-			return nil
-		}
-	}
-	watcher := g.bus.onEventStorage.OnE(listener)
+	watcher := g.bus.onEventStorage.OnE(g.createWatchListener(ctx, queryAgain))
 	defer watcher.Off()
-
-	type runResult struct {
-		count   int
-		problem error
-	}
 
 	for {
 		select {
@@ -262,34 +221,58 @@ func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 			translator := <-translateOut
 			return errors.Join(translator, ctx.Err())
 		case <-queryAgain:
-			queryResults, start, err := g.core.Stream(out.Context(), ops)
-			if err != nil {
+			if err := g.runWatchQuery(ctx, out, ops, results); err != nil {
 				return err
-			}
-
-			go func() {
-				for r := range queryResults {
-					results <- r
-				}
-			}()
-
-			runOut := make(chan runResult, 1)
-			go func() {
-				count, err := start(out.Context())
-				runOut <- runResult{count, err}
-				close(runOut)
-			}()
-			select {
-			case <-ctx.Done():
-				//todo:determine errors blocking
-				return ctx.Err()
-			case runErr := <-runOut:
-				if runErr.problem != nil {
-					return runErr.problem
-				}
 			}
 		}
 	}
+}
+
+func (g *grpcQuery) createWatchListener(ctx context.Context, queryAgain chan<- interface{}) func(context.Context, EventStorageEvent) error {
+	return func(ctx context.Context, storage EventStorageEvent) error {
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case queryAgain <- nil:
+			return nil
+		default:
+			return nil
+		}
+	}
+}
+
+func (g *grpcQuery) runWatchQuery(ctx context.Context, out ipc.Query_QueryServer, ops []storage2.Operation, results chan<- storage2.OperationResult) error {
+	type runResult struct {
+		count   int
+		problem error
+	}
+
+	queryResults, start, err := g.core.Stream(out.Context(), ops)
+	if err != nil {
+		return err
+	}
+
+	go func() {
+		for r := range queryResults {
+			results <- r
+		}
+	}()
+
+	runOut := make(chan runResult, 1)
+	go func() {
+		count, err := start(out.Context())
+		runOut <- runResult{count, err}
+		close(runOut)
+	}()
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case runErr := <-runOut:
+		if runErr.problem != nil {
+			return runErr.problem
+		}
+	}
+	return nil
 }
 
 // grpcPort exports a Command and Query grpc with the specified configuration
@@ -301,24 +284,15 @@ type grpcPort struct {
 }
 
 func (g *grpcPort) Serve(ctx context.Context) error {
-	//Just exit without a proper configuration
 	if g.config == nil {
 		return suture.ErrDoNotRestart
 	}
-	//build service
-	var opts []grpc.ServerOption
-	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
-	if g.config.ServicePKI != nil {
-		keyPair, err := tls.LoadX509KeyPair(g.config.ServicePKI.CertificateFile, g.config.ServicePKI.KeyFile)
-		if err != nil {
-			return err
-		}
-		config := &tls.Config{
-			Certificates: []tls.Certificate{keyPair},
-			ClientAuth:   tls.NoClientCert,
-		}
-		opts = append(opts, grpc.Creds(credentials.NewTLS(config)))
+
+	opts, err := g.buildServerOptions()
+	if err != nil {
+		return err
 	}
+
 	service := grpc.NewServer(opts...)
 	ipc.RegisterCommandServer(service, &grpcCommand{
 		oldCore: g.oldCore,
@@ -331,13 +305,32 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 		bus:     g.bus,
 	})
 
-	//
 	tcpListener, err := net.Listen("tcp", g.config.Address)
 	if err != nil {
 		return err
 	}
 
-	//launch the service
+	return g.runService(ctx, service, tcpListener)
+}
+
+func (g *grpcPort) buildServerOptions() ([]grpc.ServerOption, error) {
+	var opts []grpc.ServerOption
+	opts = append(opts, grpc.StatsHandler(otelgrpc.NewServerHandler()))
+	if g.config.ServicePKI != nil {
+		keyPair, err := tls.LoadX509KeyPair(g.config.ServicePKI.CertificateFile, g.config.ServicePKI.KeyFile)
+		if err != nil {
+			return nil, err
+		}
+		tlsConfig := &tls.Config{
+			Certificates: []tls.Certificate{keyPair},
+			ClientAuth:   tls.NoClientCert,
+		}
+		opts = append(opts, grpc.Creds(credentials.NewTLS(tlsConfig)))
+	}
+	return opts, nil
+}
+
+func (g *grpcPort) runService(ctx context.Context, service *grpc.Server, tcpListener net.Listener) error {
 	listenerResult := make(chan error, 1)
 	go func() {
 		defer close(listenerResult)
@@ -346,19 +339,22 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 		listenerResult <- err
 	}()
 
-	//Wait for either (1) the service to be shutdown or (2) a problem serving
 	for {
 		select {
 		case <-ctx.Done():
-			closeError := tcpListener.Close()
-			select {
-			case listenerDone := <-listenerResult:
-				return errors.Join(closeError, listenerDone)
-			case <-time.After(1 * time.Second):
-				return errors.Join(errors.New("timed out cleaning up grpc listener"), closeError)
-			}
+			return g.handleShutdown(ctx, tcpListener, listenerResult)
 		case problem := <-listenerResult:
 			return problem
 		}
+	}
+}
+
+func (g *grpcPort) handleShutdown(ctx context.Context, tcpListener net.Listener, listenerResult <-chan error) error {
+	closeError := tcpListener.Close()
+	select {
+	case listenerDone := <-listenerResult:
+		return errors.Join(closeError, listenerDone)
+	case <-time.After(1 * time.Second):
+		return errors.Join(errors.New("timed out cleaning up grpc listener"), closeError)
 	}
 }

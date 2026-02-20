@@ -3,6 +3,7 @@ package memory
 import (
 	"context"
 	"errors"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 )
 

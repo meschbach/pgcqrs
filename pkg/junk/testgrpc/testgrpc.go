@@ -2,10 +2,11 @@ package testgrpc
 
 import (
 	"context"
+	"testing"
+
 	"github.com/meschbach/go-junk-bucket/pkg/stdgrpc/buffernet"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"testing"
 )
 
 func InternalGRPConnection(t *testing.T, ctx context.Context, exportService func(server *grpc.Server)) *grpc.ClientConn {

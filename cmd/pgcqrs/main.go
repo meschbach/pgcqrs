@@ -4,9 +4,10 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
+
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/spf13/cobra"
-	"os"
 )
 
 func configureStream(ctx context.Context, host, app, stream string) (*v1.Stream, error) {

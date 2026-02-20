@@ -9,16 +9,6 @@ type queryService struct {
 	core *core
 }
 
-//func (q *queryService) ListStreams(ctx context.Context, in *ipc.ListStreamsIn) (*ipc.ListStreamsOut, error) {
-//	//TODO implement me
-//	panic("implement me")
-//}
-//
-//func (q *queryService) Get(ctx context.Context, in *ipc.GetIn) (*ipc.GetOut, error) {
-//	//TODO implement me
-//	panic("implement me")
-//}
-
 func (q *queryService) Query(in *ipc.QueryIn, server ipc.Query_QueryServer) error {
 	stream, has := q.core.lookup(in.Events)
 	if !has {

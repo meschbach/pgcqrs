@@ -2,11 +2,12 @@ package local
 
 import (
 	"encoding/json"
+	"testing"
+
 	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"math/rand"
-	"testing"
 )
 
 type Superset struct {
@@ -21,9 +22,11 @@ type Subset struct {
 }
 
 func TestJSONMatch(t *testing.T) {
+	t.Parallel()
 	t.Run("subset match", func(t *testing.T) {
+		t.Parallel()
 		value := faker.Word()
-		i := rand.Int()
+		i := faking.RandInt()
 		superset := Superset{
 			Value:    value,
 			IntValue: i,
@@ -43,8 +46,9 @@ func TestJSONMatch(t *testing.T) {
 	})
 
 	t.Run("exact match", func(t *testing.T) {
+		t.Parallel()
 		value := faker.Word()
-		i := rand.Int()
+		i := faking.RandInt()
 		superset := Superset{
 			Value:    value,
 			IntValue: i,

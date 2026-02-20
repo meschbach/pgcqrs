@@ -26,9 +26,9 @@ func (s *Stream) performQuery(ctx context.Context, query WireQuery) (WireQueryRe
 
 // QueryBuilder accumulates and prepares a request to obtain the matching events
 type QueryBuilder struct {
-	//stream is the target stream to make th request on
+	// Stream is the target stream to make th request on
 	stream *Stream
-	//kinds maps the text name of the kind and the constraints for the matching events
+	// Kinds maps the text name of the kind and the constraints for the matching events
 	kinds map[string]*KindBuilder
 }
 
@@ -53,7 +53,7 @@ func (q *QueryBuilder) Perform(ctx context.Context) (QueryResults, error) {
 		return nil, err
 	}
 
-	//Ensure results are properly filtered
+	// Ensure results are properly filtered
 	if !result.Filtered || !result.SubsetMatch {
 		span := trace.SpanFromContext(ctx)
 		span.AddEvent("local-processing", trace.WithAttributes(attribute.Bool("filtered", result.Filtered), attribute.Bool("subset-match", result.SubsetMatch)))
@@ -83,7 +83,7 @@ type equalityPredicate struct {
 // QueryResults is a result set with just a set of envelopes.  Really should be titled EnvelopeResults in future API
 // revisions but is not since this was the first crack at building the system.
 type QueryResults interface {
-	//Envelopes returns an array of all envelopes which matched all entities
+	// Envelopes returns an array of all envelopes which matched all entities
 	Envelopes() []Envelope
 }
 

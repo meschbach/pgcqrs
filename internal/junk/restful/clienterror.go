@@ -2,9 +2,10 @@ package restful
 
 import (
 	"fmt"
+	"net/http"
+
 	"go.opentelemetry.io/otel/codes"
 	"go.opentelemetry.io/otel/trace"
-	"net/http"
 )
 
 func ClientError(writer http.ResponseWriter, request *http.Request, problem error) {

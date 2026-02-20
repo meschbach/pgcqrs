@@ -2,11 +2,12 @@ package service
 
 import (
 	"context"
+	"testing"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
-	"testing"
 )
 
 type capturingSink struct {
@@ -21,9 +22,9 @@ func (c *capturingSink) send(ctx context.Context, msg *ipc.QueryOut) error {
 const fakeIDMax = 999999
 const fakeIDMin = 0
 
-func fakeInt64Range(min int64, max int64) int64 {
+func fakeInt64Range(minimum, maximum int64) int64 {
 	//todo: resolve how to get the correct range
-	value := faking.RandIntRange(int(min), int(max))
+	value := faking.RandIntRange(int(minimum), int(maximum))
 	return int64(value)
 }
 
@@ -56,7 +57,7 @@ func TestVersionFilter(t *testing.T) {
 			require.NoError(t, err)
 
 			//
-			//then we should dispatch the event
+			// Then we should dispatch the event
 			//
 			if assert.Len(t, capture.given, 1) {
 				assert.Equal(t, firstID, *capture.given[0].Id)

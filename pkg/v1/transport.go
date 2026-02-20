@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 )
 
@@ -32,8 +33,8 @@ type WireQuery struct {
 }
 
 type WireQueryResult struct {
-	//Filtered indicates the result has been filtered according to the specified matchers in the query.  If not then the
-	//client is responsible for filtering.
+	// Filtered indicates the result has been filtered according to the specified matchers in the query.  If not then the
+	// client is responsible for filtering.
 	Filtered    bool `json:"filtered"`
 	SubsetMatch bool `json:"subsetMatch,omitempty"`
 	Matching    []Envelope
@@ -42,14 +43,14 @@ type WireQueryResult struct {
 type KindConstraint struct {
 	Kind string          `json:"kind"`
 	Eq   []WireMatcherV1 `json:"$eq,omitempty"`
-	//MatchSubset is the JSON structure we must match in order to return the target kind
+	// MatchSubset is the JSON structure we must match in order to return the target kind
 	MatchSubset json.RawMessage `json:"$sub,omitempty"`
 }
 
 type WireMatcherV1 struct {
-	//Property represents a path to the JSON property to be tested.
+	// Property represents a path to the JSON property to be tested.
 	Property []string `json:"key"`
-	//Value represents acceptable values.  At this time only a single value is supported.
+	// Value represents acceptable values.  At this time only a single value is supported.
 	Value []string `json:"in"`
 }
 

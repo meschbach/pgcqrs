@@ -2,10 +2,11 @@ package v1
 
 import (
 	"context"
-	"github.com/go-faker/faker/v4"
-	"github.com/stretchr/testify/assert"
 	"testing"
 	"time"
+
+	"github.com/go-faker/faker/v4"
+	"github.com/stretchr/testify/assert"
 )
 
 type PutEvent struct {
@@ -14,6 +15,7 @@ type PutEvent struct {
 type putEventQuery = PutEvent
 
 func TestFindByKindsWithMultiple(t *testing.T) {
+	t.Parallel()
 	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
 	defer done()
 	mem := NewMemoryTransport()

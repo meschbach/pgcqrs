@@ -1,8 +1,9 @@
 package storage
 
 import (
-	"github.com/meschbach/pgcqrs/pkg/v1"
 	"strings"
+
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
 // TODO: when other things move into the storage package, this should not be exported any longer

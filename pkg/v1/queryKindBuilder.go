@@ -29,7 +29,7 @@ func (k *KindBuilder) On(handler OnStreamQueryResult) *KindBuilder {
 	return k
 }
 
-func (k *KindBuilder) Eq(property string, value string) *KindBuilder {
+func (k *KindBuilder) Eq(property, value string) *KindBuilder {
 	return k.Equals([]string{property}, value)
 }
 
@@ -42,7 +42,7 @@ func (k *KindBuilder) Equals(property []string, value string) *KindBuilder {
 }
 
 func (k *KindBuilder) toKindConstraint() KindConstraint {
-	var matchers []WireMatcherV1
+	matchers := make([]WireMatcherV1, 0, len(k.eq))
 	for _, m := range k.eq {
 		matchers = append(matchers, WireMatcherV1{
 			Property: m.Property,

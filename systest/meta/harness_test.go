@@ -2,13 +2,14 @@ package meta
 
 import (
 	"context"
+	"os"
+	"testing"
+	"time"
+
 	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal/junk"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/require"
-	"os"
-	"testing"
-	"time"
 )
 
 type harness struct {

@@ -2,11 +2,12 @@ package main
 
 import (
 	"fmt"
+	"os"
+
 	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/go-junk-bucket/pkg/files"
 	"github.com/meschbach/pgcqrs/internal/service"
 	"github.com/spf13/cobra"
-	"os"
 )
 
 func main() {
@@ -25,7 +26,7 @@ func main() {
 				}
 			}
 			cmdContext := cmd.Context()
-			service.Serve(cmdContext, cfg)
+			service.Serve(cmdContext, &cfg)
 			return nil
 		},
 	}

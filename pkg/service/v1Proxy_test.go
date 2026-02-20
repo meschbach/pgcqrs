@@ -2,6 +2,9 @@ package service
 
 import (
 	"context"
+	"io"
+	"testing"
+
 	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/go-junk-bucket/pkg/stdgrpc/buffernet"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
@@ -9,14 +12,13 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc"
-	"io"
-	"testing"
 )
 
 var trueValue = true
 var truePointer = &trueValue
 
 func TestV2SystemProxy(t *testing.T) {
+	t.Parallel()
 	ctx, done := context.WithCancel(context.Background())
 	t.Cleanup(done)
 
@@ -38,6 +40,7 @@ func TestV2SystemProxy(t *testing.T) {
 	queryClient := ipc.NewQueryClient(wireClient)
 
 	t.Run("Able to create and find stream", func(t *testing.T) {
+		t.Parallel()
 		domainName := faker.Word()
 		streamName := faker.Word()
 		kindeName := faker.Word()
@@ -59,6 +62,7 @@ func TestV2SystemProxy(t *testing.T) {
 		assert.NotNil(t, submitOut.Id)
 
 		t.Run("When getting by ID", func(t *testing.T) {
+			t.Parallel()
 			getOut, err := queryClient.Get(ctx, &ipc.GetIn{
 				Events: domainStream,
 				Id:     submitOut.Id,
@@ -70,6 +74,7 @@ func TestV2SystemProxy(t *testing.T) {
 		})
 
 		t.Run("When querying", func(t *testing.T) {
+			t.Parallel()
 			callbackOp := int64(94)
 			queryResult, err := queryClient.Query(ctx, &ipc.QueryIn{
 				Events: domainStream,
@@ -91,7 +96,7 @@ func TestV2SystemProxy(t *testing.T) {
 				assert.Equal(t, callbackOp, opt.Op, "slot is called back")
 			}
 			opt2, err := queryResult.Recv()
-			assert.ErrorIs(t, err, io.EOF, "expected end of stream")
+			require.ErrorIs(t, err, io.EOF, "expected end of stream")
 			assert.Nil(t, opt2)
 		})
 	})

@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"fmt"
+
 	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/pgcqrs/internal/junk"
 )
@@ -14,10 +15,10 @@ const (
 )
 
 type Config struct {
-	//TransportType specifies the underlying transport mechanism to utilize.
+	// TransportType specifies the underlying transport mechanism to utilize.
 	TransportType string `json:"transport-type"`
 
-	//ServiceURL is the URL to connect to for the HTTP service layer
+	// ServiceURL is the URL to connect to for the HTTP service layer
 	ServiceURL string `json:"service-url"`
 }
 

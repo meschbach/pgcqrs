@@ -9,6 +9,7 @@ import "github.com/go-faker/faker/v4"
 // the next value is not a duplicate.
 //
 // Example usage:
+//
 //  1. Create a UniqueDomain for strings:
 //     domain := NewUniqueWords()
 //     fmt.Println(domain.Next()) // Outputs a unique word
@@ -57,7 +58,5 @@ func NewUniqueWords() *UniqueDomain[string] {
 }
 
 func NewUniqueInts() *UniqueDomain[int] {
-	return NewUniqueDomain(func() int {
-		return RandInt()
-	})
+	return NewUniqueDomain(RandInt)
 }

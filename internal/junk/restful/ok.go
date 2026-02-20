@@ -2,8 +2,9 @@ package restful
 
 import (
 	"encoding/json"
-	"go.opentelemetry.io/otel/trace"
 	"net/http"
+
+	"go.opentelemetry.io/otel/trace"
 )
 
 func Ok(writer http.ResponseWriter, request *http.Request, entity interface{}) {

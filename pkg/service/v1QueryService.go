@@ -7,6 +7,7 @@ import (
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
+// ProxyQueryService creates a new V1QueryService that proxies requests to the given transport.
 func ProxyQueryService(transport v1.Transport) *V1QueryService {
 	return &V1QueryService{
 		transport: transport,
@@ -19,6 +20,7 @@ type V1QueryService struct {
 	transport v1.Transport
 }
 
+// Get proxies the Get request.
 func (q *V1QueryService) Get(ctx context.Context, in *ipc.GetIn) (*ipc.GetOut, error) {
 	var body []byte
 	err := q.transport.GetEvent(ctx, in.Events.Domain, in.Events.Stream, in.Id, &body)
@@ -31,6 +33,7 @@ func (q *V1QueryService) Get(ctx context.Context, in *ipc.GetIn) (*ipc.GetOut, e
 	return out, nil
 }
 
+// Query proxies the Query request.
 func (q *V1QueryService) Query(input *ipc.QueryIn, output ipc.Query_QueryServer) error {
 	query := v1.WireBatchR2Request{}
 	mappedIDs := make(map[int]int64)

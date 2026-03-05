@@ -24,6 +24,7 @@ type UniqueDomain[T comparable] struct {
 	gen      func() T
 }
 
+// NewUniqueDomain creates a new UniqueDomain with the given generator.
 func NewUniqueDomain[T comparable](gen func() T) *UniqueDomain[T] {
 	return &UniqueDomain[T]{
 		grouping: make(map[T]bool),
@@ -31,6 +32,7 @@ func NewUniqueDomain[T comparable](gen func() T) *UniqueDomain[T] {
 	}
 }
 
+// Next returns a unique value from the domain.
 func (u *UniqueDomain[T]) Next() T {
 	retry := 0
 	for {
@@ -46,17 +48,20 @@ func (u *UniqueDomain[T]) Next() T {
 	}
 }
 
+// NextPtr returns a pointer to a unique value from the domain.
 func (u *UniqueDomain[T]) NextPtr() *T {
 	value := u.Next()
 	return &value
 }
 
+// NewUniqueWords creates a new UniqueDomain for unique strings.
 func NewUniqueWords() *UniqueDomain[string] {
 	return NewUniqueDomain(func() string {
 		return faker.Word()
 	})
 }
 
+// NewUniqueInts creates a new UniqueDomain for unique integers.
 func NewUniqueInts() *UniqueDomain[int] {
 	return NewUniqueDomain(RandInt)
 }

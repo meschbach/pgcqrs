@@ -7,22 +7,26 @@ import (
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
+// Query allows for building and executing queries against a stream.
 type Query struct {
 	stream v1.StreamTransport
 	kinds  []*KindClause
 	ids    []*IDClause
 }
 
+// NewQuery creates a new query builder for the given stream.
 func NewQuery(stream v1.StreamTransport) *Query {
 	return &Query{stream: stream}
 }
 
+// OnKind adds a clause to the query to filter by a specific document kind.
 func (q *Query) OnKind(kind string) *KindClause {
 	c := &KindClause{kind: kind}
 	q.kinds = append(q.kinds, c)
 	return c
 }
 
+// OnID adds a clause to the query to filter by a specific document ID.
 func (q *Query) OnID(id int64) *IDClause {
 	i := &IDClause{id: id}
 	q.ids = append(q.ids, i)

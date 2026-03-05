@@ -7,6 +7,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// Ok writes a success response with a JSON entity.
 func Ok(writer http.ResponseWriter, request *http.Request, entity interface{}) {
 	ctx := request.Context()
 	//todo: encode to things other than JSON

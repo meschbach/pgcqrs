@@ -1,3 +1,4 @@
+// Package restful provides common HTTP response helpers.
 package restful
 
 import (
@@ -9,6 +10,7 @@ import (
 
 const debug = false
 
+// InternalError writes an internal server error response.
 func InternalError(writer http.ResponseWriter, request *http.Request, problem error) {
 	ctx := request.Context()
 	span := trace.SpanFromContext(ctx)

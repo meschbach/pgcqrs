@@ -12,6 +12,7 @@ type core struct {
 	ids     int64
 }
 
+// New creates a new in-memory Command and Query server.
 func New() (ipc.CommandServer, ipc.QueryServer) {
 	c := &core{
 		changes: sync.RWMutex{},
@@ -42,15 +43,15 @@ func (c *core) get(name string) (*domain, bool) {
 }
 
 func (c *core) lookup(what *ipc.DomainStream) (*stream, bool) {
-	if d, hasDomain := c.get(what.Domain); !hasDomain {
+	d, hasDomain := c.get(what.Domain)
+	if !hasDomain {
 		return nil, false
-	} else {
-		s, hasStream := d.get(what.Stream)
-		return s, hasStream
 	}
+	s, hasStream := d.get(what.Stream)
+	return s, hasStream
 }
 
-func (c *core) coordinate(place *ipc.Consistency) (int64, *ipc.Consistency, error) {
+func (c *core) coordinate(_ *ipc.Consistency) (int64, *ipc.Consistency, error) {
 	c.changes.Lock()
 	defer c.changes.Unlock()
 	eventID := c.ids

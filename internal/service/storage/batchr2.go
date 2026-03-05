@@ -6,7 +6,8 @@ import (
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
-func TranslateBatchR2(ctx context.Context, app, stream string, request *v1.WireBatchR2Request) []Operation {
+// TranslateBatchR2 translates a WireBatchR2Request into a list of storage operations.
+func TranslateBatchR2(_ context.Context, app, stream string, request *v1.WireBatchR2Request) []Operation {
 	var output []Operation
 	// Dispatch kinds
 	for _, kind := range request.OnKinds {

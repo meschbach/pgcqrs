@@ -1,3 +1,4 @@
+// Package testgrpc provides gRPC testing helpers.
 package testgrpc
 
 import (
@@ -9,7 +10,8 @@ import (
 	"google.golang.org/grpc"
 )
 
-func InternalGRPConnection(t *testing.T, ctx context.Context, exportService func(server *grpc.Server)) *grpc.ClientConn {
+// InternalGRPConnection creates an in-memory gRPC connection for testing.
+func InternalGRPConnection(ctx context.Context, t *testing.T, exportService func(server *grpc.Server)) *grpc.ClientConn {
 	server := grpc.NewServer()
 	exportService(server)
 

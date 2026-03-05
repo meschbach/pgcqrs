@@ -16,7 +16,7 @@ type putEventQuery = PutEvent
 
 func TestFindByKindsWithMultiple(t *testing.T) {
 	t.Parallel()
-	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, done := context.WithTimeout(t.Context(), 2*time.Second)
 	defer done()
 	mem := NewMemoryTransport()
 	system := NewSystem(mem)

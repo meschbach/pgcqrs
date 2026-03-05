@@ -31,11 +31,9 @@ func buildSoftTimeoutContext(base context.Context) (context.Context, func(), err
 	return ctx, cancel, nil
 }
 
-func setupHarness() (*harness, error) {
-	ctx, done, ctxErr := buildSoftTimeoutContext(context.Background())
-	if ctxErr != nil {
-		return nil, ctxErr
-	}
+func setupHarnessT(t *testing.T) (*harness, context.Context, *v1.System) {
+	ctx, done, ctxErr := buildSoftTimeoutContext(t.Context())
+	require.NoError(t, ctxErr)
 	transport, hasTransport := os.LookupEnv("PGCQRS_TEST_TRANSPORT")
 	url, hasURL := os.LookupEnv("PGCQRS_TEST_URL")
 
@@ -54,24 +52,18 @@ func setupHarness() (*harness, error) {
 	system, err := config.SystemFromConfig()
 	junk.Must(err)
 
-	out := &harness{
+	h := &harness{
 		ctx:    ctx,
 		done:   done,
 		system: system,
 	}
-	return out, nil
-}
-
-func setupHarnessT(t *testing.T) (*harness, context.Context, *v1.System) {
-	h, problem := setupHarness()
-	require.NoError(t, problem)
 
 	cfg := observability.DefaultConfig("pgcqrs:systest")
 	component, err := cfg.Start(h.ctx)
 	require.NoError(t, err, "observability error")
 
 	t.Cleanup(func() {
-		require.NoError(t, component.ShutdownGracefully(context.Background()))
+		require.NoError(t, component.ShutdownGracefully(t.Context()))
 		h.done()
 	})
 	return h, h.ctx, h.system

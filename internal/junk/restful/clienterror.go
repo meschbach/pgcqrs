@@ -8,6 +8,7 @@ import (
 	"go.opentelemetry.io/otel/trace"
 )
 
+// ClientError writes a client error response.
 func ClientError(writer http.ResponseWriter, request *http.Request, problem error) {
 	ctx := request.Context()
 	span := trace.SpanFromContext(ctx)

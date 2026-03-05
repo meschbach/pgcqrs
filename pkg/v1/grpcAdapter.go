@@ -24,11 +24,13 @@ var falsy = false
 var yes = &truthful
 var no = &falsy
 
+// GrpcAdapter implements Transport using gRPC.
 type GrpcAdapter struct {
 	commands ipc.CommandClient
 	queries  ipc.QueryClient
 }
 
+// NewGRPCTransport creates a new GrpcAdapter.
 func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	var creds credentials.TransportCredentials
 	if caFile, has := os.LookupEnv("PGCQRS_GRPC_CA"); has {
@@ -68,6 +70,7 @@ func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	}, nil
 }
 
+// EnsureStream ensures the given stream exists via gRPC.
 func (g *GrpcAdapter) EnsureStream(ctx context.Context, domain, stream string) error {
 	_, err := g.commands.CreateStream(ctx, &ipc.CreateStreamIn{Target: &ipc.DomainStream{
 		Domain: domain,
@@ -79,6 +82,7 @@ func (g *GrpcAdapter) EnsureStream(ctx context.Context, domain, stream string) e
 	return nil
 }
 
+// Submit sends an event via gRPC.
 func (g *GrpcAdapter) Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error) {
 	body, err := json.Marshal(event)
 	if err != nil {
@@ -98,6 +102,7 @@ func (g *GrpcAdapter) Submit(ctx context.Context, domain, stream, kind string, e
 	return &Submitted{ID: result.Id}, nil
 }
 
+// GetEvent retrieves a specific event via gRPC.
 func (g *GrpcAdapter) GetEvent(ctx context.Context, domain, stream string, id int64, event interface{}) error {
 	result, err := g.queries.Get(ctx, &ipc.GetIn{
 		Events: &ipc.DomainStream{
@@ -116,6 +121,7 @@ func (g *GrpcAdapter) GetEvent(ctx context.Context, domain, stream string, id in
 	return nil
 }
 
+// AllEnvelopes returns all event envelopes via gRPC.
 func (g *GrpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error) {
 	op := int64(42)
 	result, err := g.queries.Query(ctx, &ipc.QueryIn{
@@ -141,9 +147,8 @@ func (g *GrpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) (
 		if err != nil {
 			if err == io.EOF {
 				break
-			} else {
-				return output, err
 			}
+			return output, err
 		}
 		// Still wondering when this might happen if err == nil
 		if out == nil {
@@ -162,6 +167,7 @@ func (g *GrpcAdapter) AllEnvelopes(ctx context.Context, domain, stream string) (
 	return output, nil
 }
 
+// Query performs a query via gRPC.
 func (g *GrpcAdapter) Query(ctx context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error {
 	q, filtered := g.buildQueryRequest(domain, stream, query)
 
@@ -207,7 +213,7 @@ func (g *GrpcAdapter) buildQueryRequest(domain, stream string, query WireQuery) 
 	return q, filtered
 }
 
-func (g *GrpcAdapter) buildKindConstraint(onKind KindConstraint, index int, targetOpID int64, sendBack *ipc.ResultInclude) *ipc.OnKindClause {
+func (g *GrpcAdapter) buildKindConstraint(onKind KindConstraint, index int, _ int64, sendBack *ipc.ResultInclude) *ipc.OnKindClause {
 	constraint := &ipc.OnKindClause{
 		Kind: onKind.Kind,
 	}
@@ -239,6 +245,7 @@ func (g *GrpcAdapter) receiveQueryResults(result ipc.Query_QueryClient, out *Wir
 	return nil
 }
 
+// QueryBatch performs a batch query via gRPC.
 func (g *GrpcAdapter) QueryBatch(ctx context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error {
 	op := int64(42)
 	in := &ipc.QueryIn{
@@ -272,9 +279,8 @@ func (g *GrpcAdapter) QueryBatch(ctx context.Context, domain, stream string, que
 		if err != nil {
 			if err == io.EOF {
 				return nil
-			} else {
-				return err
 			}
+			return err
 		}
 
 		out.Page = append(out.Page, WireBatchResultPair{
@@ -297,6 +303,7 @@ func grpcMaybeWireOp(maybeOp *int) *int64 {
 	return &extended
 }
 
+// QueryBatchR2 performs an R2 batch query via gRPC.
 func (g *GrpcAdapter) QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error {
 	in, err := g.buildBatchR2Request(domain, stream, batch)
 	if err != nil {
@@ -374,6 +381,7 @@ func (g *GrpcAdapter) receiveBatchR2Results(result ipc.Query_QueryClient, out *W
 	}
 }
 
+// Meta retrieves metadata via gRPC.
 func (g *GrpcAdapter) Meta(ctx context.Context) (WireMetaV1, error) {
 	result := WireMetaV1{}
 
@@ -401,6 +409,7 @@ func (g *GrpcAdapter) Meta(ctx context.Context) (WireMetaV1, error) {
 	return result, nil
 }
 
+// Watch sets up a watch via gRPC.
 func (g *GrpcAdapter) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
 	stream, err := g.queries.Watch(ctx, query)
 	if err != nil {
@@ -413,7 +422,7 @@ type grpcWatchPump struct {
 	wire grpc.ServerStreamingClient[ipc.QueryOut]
 }
 
-func (g *grpcWatchPump) Tick(ctx context.Context) (msg *ipc.QueryOut, err error) {
+func (g *grpcWatchPump) Tick(_ context.Context) (msg *ipc.QueryOut, err error) {
 	msg, err = g.wire.Recv()
 	if err != nil {
 		if st, ok := status.FromError(err); ok && st.Code() == codes.Canceled {

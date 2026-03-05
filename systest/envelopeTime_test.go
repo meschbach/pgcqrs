@@ -21,11 +21,8 @@ func TestSystemClient(t *testing.T) {
 	t.Parallel()
 	t.Run("With v1 Client", func(t *testing.T) {
 		t.Parallel()
-		harness := setupHarness()
+		harness := setupHarnessT(t)
 		ctx := harness.ctx
-		t.Cleanup(func() {
-			harness.done()
-		})
 		stream := harness.stream
 
 		value := faker.Name()

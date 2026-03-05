@@ -24,6 +24,7 @@ type service struct {
 	bus        *bus
 }
 
+// Result represents a generic operation result.
 type Result struct {
 	Ok bool `json:"ok"`
 }
@@ -38,7 +39,7 @@ func (s *service) routes() http.Handler {
 
 	v1Router := root.PathPrefix("/v1").Subrouter()
 	v1Router.Use(otelmux.Middleware("pgcqrs.http.v1"))
-	v1Router.PathPrefix("/info").HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+	v1Router.PathPrefix("/info").HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
 		bytes, err := json.Marshal("pg-cqrs")
 		junk.Must(err)
 		_, err = writer.Write(bytes)
@@ -93,7 +94,7 @@ func (s *service) routes() http.Handler {
 	return root
 }
 
-func (s *service) serve(ctx context.Context, config *ListenerConfig) {
+func (s *service) serve(_ context.Context, config *ListenerConfig) {
 	listenerAddress := "localhost:9000"
 	if config != nil {
 		listenerAddress = config.Address
@@ -116,6 +117,7 @@ func (s *service) serve(ctx context.Context, config *ListenerConfig) {
 	}
 }
 
+// Serve starts the CQRS service with the given configuration.
 func Serve(ctx context.Context, cfg *Config) {
 	fmt.Println("Starting PG-CQRS Service")
 	component, err := cfg.Telemetry.Start(ctx)
@@ -124,9 +126,10 @@ func Serve(ctx context.Context, cfg *Config) {
 	}
 	go func() {
 		<-ctx.Done()
-		ctx, done := context.WithTimeout(context.Background(), 30*time.Second)
+		//nolint:forbidigo
+		shutdownCtx, done := context.WithTimeout(context.Background(), 30*time.Second)
 		defer done()
-		if err := component.ShutdownGracefully(ctx); err != nil {
+		if err := component.ShutdownGracefully(shutdownCtx); err != nil {
 			panic(err)
 		}
 	}()

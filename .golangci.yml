@@ -25,14 +25,18 @@ linters:
     - gocritic
     - gocyclo
     - dupl
+    - funlen
+    - gocheckcompilerdirectives
+    - gocognit
+    - godoclint
     - misspell
     - dogsled
     - makezero
     - prealloc
+    - revive
     
     # Testing
-# parallel test wreaks havoc with the MemoryHarness
-#    - paralleltest
+    - paralleltest
     - testifylint
     
     # Modern practices
@@ -41,18 +45,29 @@ linters:
   settings:
     gocyclo:
       min-complexity: 8
-    gosec: {}
+    gocognit:
+      min-complexity: 20
     dupl:
       threshold: 80
     misspell:
       locale: US
     forbidigo:
       forbid:
-        - pkg: fmt\.Print.*
-          msg: "Use structured logging instead"
-      exclude-glob:
-        - 'cmd/**/*.go'
-        - '**/.pb.go'
+        - pattern: "context.Background"
+          msg: "Pass a context in or used the past context"
+        - pattern: "context.TODO"
+          msg: "Use a specific context or pass a context in"
+
+    godoclint:
+      options:
+        rules:
+          - require-doc
+          - start-with-name
+          - max-len
+
+    funlen:
+      lines: 150
+      statements: 100
 
     gocritic:
       enabled-tags:
@@ -70,12 +85,12 @@ linters:
 
     errcheck:
       check-type-assertions: true
-      check-blank: false  # Allow _ = errors for explicit ignoring
+      check-blank: true  # Allow _ = errors for explicit ignoring
       exclude-functions:
         - (fmt\.Fprintf).*outputWriter  # CLI user output is legitimate
 
-#    paralleltest:
-#      ignore-missing-subtests: false  # Require explicit t.Parallel() calls for all tests
+    paralleltest:
+      ignore-missing-subtests: true  # Require explicit t.Parallel() calls for all tests
 
 formatters:
   enable:

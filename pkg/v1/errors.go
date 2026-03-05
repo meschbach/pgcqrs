@@ -1,7 +1,9 @@
+// Package v1 provides the core CQRS client and transport interfaces.
 package v1
 
 import "fmt"
 
+// TransportError represents an error that occurred during transport.
 type TransportError struct {
 	Underlying error
 }

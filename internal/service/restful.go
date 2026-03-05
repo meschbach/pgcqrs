@@ -29,7 +29,7 @@ func (s *service) v1QueryRoute() http.HandlerFunc {
 		var response v1.WireQueryResult
 		response.Filtered = true
 		response.SubsetMatch = true
-		err := s.storage.applyQuery(ctx, app, stream, query, false, func(ctx context.Context, meta pgMeta, event json.RawMessage) error {
+		err := s.storage.applyQuery(ctx, app, stream, query, false, func(_ context.Context, meta pgMeta, _ json.RawMessage) error {
 			response.Matching = append(response.Matching, presentMetaAsEnvelope(meta))
 			return nil
 		})
@@ -56,7 +56,7 @@ func (s *service) v1QueryBatchRoute() http.HandlerFunc {
 
 		//TODO: modify query to retrieve data payload too
 		var response v1.WireBatchResults
-		err := s.storage.applyQuery(ctx, app, stream, query, true, func(ctx context.Context, meta pgMeta, data json.RawMessage) error {
+		err := s.storage.applyQuery(ctx, app, stream, query, true, func(_ context.Context, meta pgMeta, data json.RawMessage) error {
 			response.Page = append(response.Page, v1.WireBatchResultPair{
 				Meta: presentMetaAsEnvelope(meta),
 				Data: data,
@@ -127,7 +127,7 @@ func (s *service) v1QueryAllEnvelopes() http.HandlerFunc {
 		stream := vars["stream"]
 
 		out := v1.AllEnvelopes{}
-		err := s.storage.replayMeta(request.Context(), app, stream, func(ctx context.Context, meta pgMeta, entity json.RawMessage) error {
+		err := s.storage.replayMeta(request.Context(), app, stream, func(_ context.Context, meta pgMeta, _ json.RawMessage) error {
 			out.Envelopes = append(out.Envelopes, presentMetaAsEnvelope(meta))
 			return nil
 		})
@@ -158,7 +158,7 @@ func (s *service) v1SubmitByKind() http.HandlerFunc {
 			restful.InternalError(writer, request, err)
 			return
 		}
-		restful.Ok(writer, request, v1.SubmitReply{Id: id})
+		restful.Ok(writer, request, v1.SubmitReply{ID: id})
 
 		s.bus.dispatchOnEventStored(ctx, app, stream, id, kind, all)
 	}

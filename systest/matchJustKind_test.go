@@ -19,11 +19,8 @@ func TestMultiKindMatch(t *testing.T) {
 	t.Parallel()
 	t.Run("With V1 Client, With two documents of the same kind", func(t *testing.T) {
 		t.Parallel()
-		harness := setupHarness()
+		harness := setupHarnessT(t)
 		ctx := harness.ctx
-		t.Cleanup(func() {
-			harness.done()
-		})
 		stream := harness.stream
 
 		kind1 := faker.Name()
@@ -48,7 +45,7 @@ func TestMultiKindMatch(t *testing.T) {
 			// We are explicitly testing legacy invocations here, so deprecation does not count.
 			// nolint
 			q := stream.Query()
-			q.WithKind(kind1).On(v1.EntityFunc[Example](func(ctx context.Context, e v1.Envelope, entity Example) {
+			q.WithKind(kind1).On(v1.EntityFunc[Example](func(_ context.Context, e v1.Envelope, entity Example) {
 				matchedEnvelopes = append(matchedEnvelopes, e)
 				matched = append(matched, entity)
 			}))
@@ -70,7 +67,7 @@ func TestMultiKindMatch(t *testing.T) {
 			// We are explicitly testing legacy invocations here, so deprecation does not count.
 			// nolint
 			q := stream.Query()
-			q.WithKind(kind1).Match(Example{Value: value1}).On(v1.EntityFunc[Example](func(ctx context.Context, e v1.Envelope, entity Example) {
+			q.WithKind(kind1).Match(Example{Value: value1}).On(v1.EntityFunc[Example](func(_ context.Context, e v1.Envelope, entity Example) {
 				matched = append(matched, matchedPair[Example]{
 					envelope: e,
 					entity:   entity,

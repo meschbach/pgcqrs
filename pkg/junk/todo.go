@@ -1,3 +1,4 @@
+// Package junk provides miscellaneous utilities for testing and development.
 package junk
 
 import "errors"

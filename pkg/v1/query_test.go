@@ -12,6 +12,7 @@ import (
 )
 
 func TestKindFilter(t *testing.T) {
+	t.Parallel()
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
 		fakeKind := faker.LastName()
 		t1 := h.stream.MustSubmit(ctx, fakeKind, &PutEvent{Value: "test1"})
@@ -32,6 +33,7 @@ func TestKindFilter(t *testing.T) {
 }
 
 func TestKindEqFilter(t *testing.T) {
+	t.Parallel()
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
 		words := faking.NewUniqueWords()
 		kind1 := words.Next()
@@ -63,6 +65,7 @@ type MatcherExample struct {
 }
 
 func TestMatchFilter(t *testing.T) {
+	t.Parallel()
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
 		kind1 := faker.Word()
 		kind2 := faker.Word()
@@ -93,9 +96,7 @@ type Harness struct {
 }
 
 func MemoryHarness(t *testing.T, perform func(ctx context.Context, h Harness)) {
-	t.Parallel()
-
-	ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
+	ctx, done := context.WithTimeout(t.Context(), 2*time.Second)
 	defer done()
 
 	harness := Harness{

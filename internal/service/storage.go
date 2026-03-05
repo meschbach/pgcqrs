@@ -28,7 +28,10 @@ type pgMeta struct {
 	Kind string
 }
 
+// EventLoader is a function type for loading events into a target object.
 type EventLoader = func(interface{}) error
+
+// OnEvent is a function type for processing event metadata and payload.
 type OnEvent = func(ctx context.Context, meta pgMeta, event json.RawMessage) error
 
 func (s *storage) query(parent context.Context, sql string, args ...interface{}) (pgx.Rows, error) {
@@ -194,7 +197,7 @@ func (s *storage) dispatchRowMeta(ctx context.Context, results pgx.Rows, extract
 	for results.Next() {
 		count++
 		var meta pgMeta
-		var event json.RawMessage = nil
+		var event json.RawMessage
 		if extractEvent {
 			if err := results.Scan(&meta.ID, &meta.When, &meta.Kind, &event); err != nil {
 				return count, err

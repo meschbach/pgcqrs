@@ -22,6 +22,7 @@ func (p *postProcessingHandlers) register(kind string, result OnStreamQueryResul
 	p.typedHandlers[kind] = result
 }
 
+// Stream performs a query and returns result through the given handler.
 func (q *QueryBuilder) Stream(parentContext context.Context) error {
 	ctx, span := tracer.Start(parentContext, "pgcqrs.StreamingQuery")
 	defer span.End()
@@ -52,6 +53,7 @@ func (q *QueryBuilder) Stream(parentContext context.Context) error {
 	return nil
 }
 
+// OnStreamQueryResult defines the function signature for processing query results.
 type OnStreamQueryResult = func(ctx context.Context, e Envelope, rawJSON json.RawMessage) error
 
 func (s *Stream) performBatchQuery(ctx context.Context, query WireQuery) (WireBatchResults, error) {
@@ -60,6 +62,7 @@ func (s *Stream) performBatchQuery(ctx context.Context, query WireQuery) (WireBa
 	return out, err
 }
 
+// EntityFunc converts a function that processes an entity into an OnStreamQueryResult.
 func EntityFunc[T any](apply func(ctx context.Context, e Envelope, entity T)) OnStreamQueryResult {
 	return EntityFuncE(func(ctx context.Context, e Envelope, entity T) error {
 		apply(ctx, e, entity)
@@ -67,6 +70,7 @@ func EntityFunc[T any](apply func(ctx context.Context, e Envelope, entity T)) On
 	})
 }
 
+// EntityFuncE converts a function that processes an entity and returns an error into an OnStreamQueryResult.
 func EntityFuncE[T any](apply func(ctx context.Context, e Envelope, entity T) error) OnStreamQueryResult {
 	return func(ctx context.Context, e Envelope, rawJSON json.RawMessage) error {
 		var t T
@@ -77,6 +81,7 @@ func EntityFuncE[T any](apply func(ctx context.Context, e Envelope, entity T) er
 	}
 }
 
+// QueryBatchR2 performs an R2 batch query against the stream.
 func (s *Stream) QueryBatchR2(ctx context.Context, batch *WireBatchR2Request) (*WireBatchR2Result, error) {
 	out := &WireBatchR2Result{}
 	err := s.system.Transport.QueryBatchR2(ctx, s.domain, s.stream, batch, out)
@@ -86,7 +91,7 @@ func (s *Stream) QueryBatchR2(ctx context.Context, batch *WireBatchR2Request) (*
 	return out, nil
 }
 
-// todo: relocate
+// Watch sets up a watch on the stream.
 func (s *Stream) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
 	query.Events = &ipc.DomainStream{
 		Domain: s.domain,

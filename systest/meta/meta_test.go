@@ -12,7 +12,7 @@ import (
 
 var tracer = otel.Tracer("systest.meta")
 
-func tracedTest(t *testing.T, parent context.Context, name string, test func(t *testing.T, ctx context.Context)) {
+func tracedTest(parent context.Context, t *testing.T, name string, test func(t *testing.T, ctx context.Context)) {
 	t.Run(name, func(t *testing.T) {
 		ctx, _ := tracer.Start(parent, t.Name())
 		test(t, ctx)
@@ -33,7 +33,7 @@ func TestMeta(t *testing.T) {
 			_, err := sys.Stream(ctx, domain, stream)
 			require.NoError(t, err)
 
-			tracedTest(t, ctx, "Then application is listable", func(t *testing.T, ctx context.Context) {
+			tracedTest(ctx, t, "Then application is listable", func(t *testing.T, ctx context.Context) {
 				domains, err := sys.ListDomains(ctx)
 				require.NoError(t, err)
 				assert.Contains(t, domains, domain)

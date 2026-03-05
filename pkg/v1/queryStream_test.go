@@ -10,6 +10,7 @@ import (
 )
 
 func TestQueryStream(t *testing.T) {
+	t.Parallel()
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
 		kind1 := faker.LastName()
 		kind2 := faker.FirstName()
@@ -25,7 +26,7 @@ func TestQueryStream(t *testing.T) {
 		var envelopes []Envelope
 		var events []PutEvent
 		query := h.stream.Query()
-		query.WithKind(kind2).Match(putEventQuery{Value: commonValue}).On(EntityFunc[PutEvent](func(ctx context.Context, e Envelope, p PutEvent) {
+		query.WithKind(kind2).Match(putEventQuery{Value: commonValue}).On(EntityFunc[PutEvent](func(_ context.Context, e Envelope, p PutEvent) {
 			envelopes = append(envelopes, e)
 			events = append(events, p)
 		}))

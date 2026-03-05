@@ -18,7 +18,7 @@ func healthCheckCommand() *cobra.Command {
 			timedContext, done := context.WithTimeout(cmd.Context(), 10*time.Second)
 			defer done()
 
-			t := v1.NewHttpTransport("http://localhost:9000")
+			t := v1.NewHTTPTransport("http://localhost:9000")
 			data, err := t.Meta(timedContext)
 			fmt.Printf("Successful with %d domains.\n", len(data.Domains))
 			return err

@@ -45,7 +45,7 @@ func (g *grpcResultStream) runTranslator(parent context.Context, onEachResult <-
 // pushTranslatorMessage converts a storage operation result into a gRPC message and sends it to the client.
 // It skips messages with IDs lower than the last seen ID to prevent duplicates.
 // Returns an error if the message conversion or sending fails.
-func (g *grpcResultStream) pushTranslatorMessage(parent context.Context, r storage2.OperationResult) error {
+func (g *grpcResultStream) pushTranslatorMessage(_ context.Context, r storage2.OperationResult) error {
 	//
 	// ignore events if we've already seen them
 	//

@@ -1,3 +1,4 @@
+// Package service provides the core CQRS service implementation.
 package service
 
 import (
@@ -8,6 +9,7 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
+// EventStorageEvent represents an event stored in the system.
 type EventStorageEvent struct {
 	Domain string
 	Stream string

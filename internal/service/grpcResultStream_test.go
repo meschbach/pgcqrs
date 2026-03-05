@@ -14,7 +14,7 @@ type capturingSink struct {
 	given []*ipc.QueryOut
 }
 
-func (c *capturingSink) send(ctx context.Context, msg *ipc.QueryOut) error {
+func (c *capturingSink) send(_ context.Context, msg *ipc.QueryOut) error {
 	c.given = append(c.given, msg)
 	return nil
 }
@@ -41,6 +41,7 @@ func fakeIDBelow(value int64) int64 {
 }
 
 func TestVersionFilter(t *testing.T) {
+	t.Parallel()
 	t.Run("Given a new state", func(t *testing.T) {
 		ctx := t.Context()
 		capture := &capturingSink{}
@@ -112,6 +113,7 @@ func TestVersionFilter(t *testing.T) {
 }
 
 func TestOpSplitter(t *testing.T) {
+	t.Parallel()
 	captures := make(map[int64]*capturingSink)
 
 	splitter := newOpSplitter(func(i int64) grpcSink {

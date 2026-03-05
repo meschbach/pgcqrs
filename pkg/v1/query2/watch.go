@@ -8,11 +8,13 @@ import (
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
+// Watch represents a continuous query that pumps results from a stream.
 type Watch struct {
 	handlers *handlers
 	wirePump v1.WatchInternal
 }
 
+// Pump continuously ticks the watch until an error occurs or the context is canceled.
 func (w *Watch) Pump(ctx context.Context) error {
 	for {
 		if err := w.Tick(ctx); err != nil {
@@ -21,6 +23,8 @@ func (w *Watch) Pump(ctx context.Context) error {
 	}
 }
 
+// Tick performs a single iteration of the watch, processing one event if available.
+// todo: consider other locations
 func (w *Watch) Tick(ctx context.Context) error {
 	m, err := w.wirePump.Tick(ctx)
 	if err != nil {

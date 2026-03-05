@@ -7,6 +7,7 @@ import (
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 )
 
+// Transport defines the interface for different communication mechanisms (e.g. memory, HTTP, gRPC).
 type Transport interface {
 	EnsureStream(ctx context.Context, domain string, stream string) error
 	Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error)
@@ -22,16 +23,19 @@ type Transport interface {
 	Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error)
 }
 
+// StreamTransport defines methods for basic stream operations.
 type StreamTransport interface {
 	QueryBatchR2(ctx context.Context, batch *WireBatchR2Request) (*WireBatchR2Result, error)
 	//todo: relocate
 	Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error)
 }
 
+// WireQuery defines the constraints for a stream query.
 type WireQuery struct {
 	KindConstraint []KindConstraint
 }
 
+// WireQueryResult contains the results of a stream query.
 type WireQueryResult struct {
 	// Filtered indicates the result has been filtered according to the specified matchers in the query.  If not then the
 	// client is responsible for filtering.
@@ -40,6 +44,7 @@ type WireQueryResult struct {
 	Matching    []Envelope
 }
 
+// KindConstraint describes matching a specific kind of entity.
 type KindConstraint struct {
 	Kind string          `json:"kind"`
 	Eq   []WireMatcherV1 `json:"$eq,omitempty"`
@@ -47,6 +52,7 @@ type KindConstraint struct {
 	MatchSubset json.RawMessage `json:"$sub,omitempty"`
 }
 
+// WireMatcherV1 describes a query to perform.
 type WireMatcherV1 struct {
 	// Property represents a path to the JSON property to be tested.
 	Property []string `json:"key"`
@@ -54,10 +60,12 @@ type WireMatcherV1 struct {
 	Value []string `json:"in"`
 }
 
+// WireMetaV1 represents top-level metadata about the CQRS system.
 type WireMetaV1 struct {
 	Domains []WireMetaDomainV1 `json:"domains"`
 }
 
+// WireMetaDomainV1 represents metadata about a specific domain.
 type WireMetaDomainV1 struct {
 	Name    string   `json:"name"`
 	Streams []string `json:"streams"`

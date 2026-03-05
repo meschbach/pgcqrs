@@ -1,3 +1,4 @@
+// Package service provides the v1 Command and Query services.
 package service
 
 import (
@@ -9,6 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 )
 
+// ProxyingCommandService creates a new V1CommandService that proxies requests to the given transport.
 func ProxyingCommandService(transport v1.Transport) *V1CommandService {
 	return &V1CommandService{
 		transport: transport,
@@ -21,6 +23,7 @@ type V1CommandService struct {
 	transport v1.Transport
 }
 
+// CreateStream proxies the CreateStream request.
 func (c *V1CommandService) CreateStream(ctx context.Context, in *ipc.CreateStreamIn) (*ipc.CreateStreamOut, error) {
 	if in == nil || in.Target == nil {
 		return nil, status.Error(codes.InvalidArgument, "nil")
@@ -34,6 +37,7 @@ func (c *V1CommandService) CreateStream(ctx context.Context, in *ipc.CreateStrea
 	return out, err
 }
 
+// Submit proxies the Submit request.
 func (c *V1CommandService) Submit(ctx context.Context, in *ipc.SubmitIn) (*ipc.SubmitOut, error) {
 	result, err := c.transport.Submit(ctx, in.Events.Domain, in.Events.Stream, in.Kind, in.Body)
 	if err != nil {

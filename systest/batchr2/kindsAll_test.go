@@ -18,10 +18,7 @@ func TestKindSearch(t *testing.T) {
 		t.Parallel()
 		kind := faker.Name()
 
-		h := setupHarness()
-		t.Cleanup(func() {
-			h.done()
-		})
+		h, _, _ := setupHarnessT(t)
 
 		var ids []int64
 		gen := func() {
@@ -38,7 +35,7 @@ func TestKindSearch(t *testing.T) {
 			q := query2.NewQuery(h.stream)
 			found := 0
 			var seen []int64
-			verifier := func(ctx context.Context, e v1.Envelope, rawJSON json.RawMessage) error {
+			verifier := func(_ context.Context, e v1.Envelope, _ json.RawMessage) error {
 				seen = append(seen, e.ID)
 				found++
 				return nil

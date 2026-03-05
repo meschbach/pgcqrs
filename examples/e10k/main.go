@@ -26,7 +26,7 @@ func main() {
 
 	ctx, done := context.WithTimeout(context.Background(), 30*time.Second)
 	defer done()
-	sys := v1.NewSystem(v1.NewHttpTransport(url))
+	sys := v1.NewSystem(v1.NewHTTPTransport(url))
 	stream := sys.MustStream(ctx, app, streamName)
 
 	kinds := []string{

@@ -65,6 +65,7 @@ func (m *memory) simulateNetwork(ctx context.Context, cmd memoryCommand) error {
 	}
 }
 
+// NewMemoryTransport creates a new in-memory Transport.
 func NewMemoryTransport() Transport {
 	m := &memory{
 		input:   make(chan memoryOp, 32),
@@ -134,20 +135,20 @@ func (m *memory) GetEvent(ctx context.Context, domain, stream string, id int64, 
 	var data []byte
 	missing := true // prevents a crash
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
-		if d, ok := m.domains[domain]; !ok {
+		d, ok := m.domains[domain]
+		if !ok {
 			return
-		} else {
-			if s, ok := d.streams[stream]; !ok {
-				return
-			} else {
-				if len(s.packets) <= int(id) {
-					return
-				}
-				event := s.packets[id]
-				data = event.data
-				missing = false
-			}
 		}
+		s, ok := d.streams[stream]
+		if !ok {
+			return
+		}
+		if len(s.packets) <= int(id) {
+			return
+		}
+		event := s.packets[id]
+		data = event.data
+		missing = false
 	}}); err != nil {
 		return err
 	}

@@ -18,14 +18,17 @@ type Repository struct {
 	pg *pgxpool.Pool
 }
 
+// RepositoryWithPool creates a new Repository using the given pgxpool.Pool.
 func RepositoryWithPool(pg *pgxpool.Pool) *Repository {
 	return &Repository{pg: pg}
 }
 
+// Operation represents a query operation.
 type Operation interface {
 	append(q *SQLQuery)
 }
 
+// OperationResult represents the result of a query operation.
 type OperationResult struct {
 	Op int
 	// Envelope contains the {ID,When}.  NOTE: No other fields are filled in

@@ -1,3 +1,4 @@
+// Package batchr2 provides system tests for the R2 batch query API.
 package batchr2
 
 import (
@@ -18,8 +19,8 @@ type harness struct {
 	stream *v1.Stream
 }
 
-func setupHarness() *harness {
-	ctx, done := context.WithCancel(context.Background())
+func setupHarnessT(t *testing.T) (*harness, context.Context, *v1.Stream) {
+	ctx, done := context.WithCancel(t.Context())
 	transport, hasTransport := os.LookupEnv("PGCQRS_TEST_TRANSPORT")
 	url, hasURL := os.LookupEnv("PGCQRS_TEST_URL")
 	appBase, hasAppBase := os.LookupEnv("PGCQRS_TEST_APP_BASE")
@@ -41,20 +42,13 @@ func setupHarness() *harness {
 	stream, err := system.Stream(ctx, appBase+"-"+faker.Name(), faker.Name())
 	junk.Must(err)
 
-	out := &harness{
+	h := &harness{
 		ctx:    ctx,
 		done:   done,
 		system: system,
 		stream: stream,
 	}
-	return out
-}
-
-func setupHarnessT(t *testing.T) (*harness, context.Context, *v1.Stream) {
-	h := setupHarness()
-	t.Cleanup(func() {
-		h.done()
-	})
+	t.Cleanup(done)
 	return h, h.ctx, h.stream
 }
 

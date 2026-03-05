@@ -2,6 +2,7 @@ package storage
 
 import "fmt"
 
+// EachKind represents a query operation that executes for each document of a specific kind.
 type EachKind struct {
 	App    string
 	Stream string

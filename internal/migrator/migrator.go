@@ -1,3 +1,4 @@
+// Package migrator handles database migrations for the CQRS service.
 package migrator
 
 import (
@@ -6,13 +7,16 @@ import (
 	"fmt"
 
 	"github.com/golang-migrate/migrate/v4"
+	// Register database driver for migrations.
 	_ "github.com/golang-migrate/migrate/v4/database/pgx"
+	// Register source driver for migrations.
 	_ "github.com/golang-migrate/migrate/v4/source/file"
 	"github.com/golang-migrate/migrate/v4/source/iofs"
 	"github.com/meschbach/pgcqrs/migrations"
 )
 
-func MigratePrimary(ctx context.Context, config Config) (problem error) {
+// MigratePrimary runs the primary database migrations.
+func MigratePrimary(_ context.Context, config Config) (problem error) {
 	migrationsFS, err := iofs.New(migrations.Primary, "primary")
 	if err != nil {
 		return err

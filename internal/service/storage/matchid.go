@@ -20,6 +20,7 @@ WHERE es.app = %s and es.stream = %s and e.id = %s`,
 	q.append(query)
 }
 
+// WithMatchID creates a new Operation that matches a specific document ID.
 func WithMatchID(domain, stream string, id int64, op int) Operation {
 	return &matchID{
 		app:    domain,

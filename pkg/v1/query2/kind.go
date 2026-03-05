@@ -8,16 +8,19 @@ import (
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
+// KindClause allows for querying by a specific document kind.
 type KindClause struct {
 	kind    string
 	each    v1.OnStreamQueryResult
 	matched []*MatchedKind
 }
 
+// Each specifies a handler to be called for every document of this kind.
 func (k *KindClause) Each(onEach v1.OnStreamQueryResult) {
 	k.each = onEach
 }
 
+// Subset specifies a subset of the document to match against.
 func (k *KindClause) Subset(doc interface{}) *MatchedKind {
 	m := &MatchedKind{
 		processor: nil,
@@ -68,16 +71,18 @@ func (k *KindClause) prepareQuery(ctx context.Context, r *ipc.QueryIn, registry 
 	return nil
 }
 
+// MatchedKind represents a kind that has been filtered by a subset match.
 type MatchedKind struct {
 	processor v1.OnStreamQueryResult
 	subset    interface{}
 }
 
+// On specifies the handler for the matched kind.
 func (m *MatchedKind) On(handler v1.OnStreamQueryResult) {
 	m.processor = handler
 }
 
-func (m *MatchedKind) prepareRequest(ctx context.Context, r *v1.WireBatchR2KindQuery, registry *handlers) error {
+func (m *MatchedKind) prepareRequest(_ context.Context, r *v1.WireBatchR2KindQuery, registry *handlers) error {
 	if m.processor == nil {
 		return nil
 	}
@@ -92,7 +97,7 @@ func (m *MatchedKind) prepareRequest(ctx context.Context, r *v1.WireBatchR2KindQ
 	return nil
 }
 
-func (m *MatchedKind) prepareQuery(ctx context.Context, r *ipc.OnKindClause, registry *handlers) error {
+func (m *MatchedKind) prepareQuery(_ context.Context, r *ipc.OnKindClause, registry *handlers) error {
 	if m.processor == nil {
 		return nil
 	}

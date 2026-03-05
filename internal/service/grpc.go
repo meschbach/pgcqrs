@@ -52,7 +52,7 @@ type grpcQuery struct {
 	bus     *bus
 }
 
-func (g *grpcQuery) ListStreams(ctx context.Context, in *ipc.ListStreamsIn) (*ipc.ListStreamsOut, error) {
+func (g *grpcQuery) ListStreams(ctx context.Context, _ *ipc.ListStreamsIn) (*ipc.ListStreamsOut, error) {
 	span := trace.SpanFromContext(ctx)
 	//todo: convert to streaming to reduce heap usage on the service
 	var out = &ipc.ListStreamsOut{}
@@ -153,6 +153,8 @@ func (g *grpcQuery) Query(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 			translateOut <- translateResult{problem: err}
 			// discard all remaining results
 			for range results {
+				// We just need to drain the channel to wait for all listeners to be notified.
+				_ = struct{}{}
 			}
 		}
 		for r := range results {
@@ -228,8 +230,8 @@ func (g *grpcQuery) Watch(in *ipc.QueryIn, out ipc.Query_QueryServer) error {
 	}
 }
 
-func (g *grpcQuery) createWatchListener(ctx context.Context, queryAgain chan<- interface{}) func(context.Context, EventStorageEvent) error {
-	return func(ctx context.Context, storage EventStorageEvent) error {
+func (g *grpcQuery) createWatchListener(_ context.Context, queryAgain chan<- interface{}) func(context.Context, EventStorageEvent) error {
+	return func(ctx context.Context, _ EventStorageEvent) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -349,7 +351,7 @@ func (g *grpcPort) runService(ctx context.Context, service *grpc.Server, tcpList
 	}
 }
 
-func (g *grpcPort) handleShutdown(ctx context.Context, tcpListener net.Listener, listenerResult <-chan error) error {
+func (g *grpcPort) handleShutdown(_ context.Context, tcpListener net.Listener, listenerResult <-chan error) error {
 	closeError := tcpListener.Close()
 	select {
 	case listenerDone := <-listenerResult:

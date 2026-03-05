@@ -21,7 +21,7 @@ type resultAccumulator struct {
 }
 
 func (r *resultAccumulator) OnEvent() v1.OnStreamQueryResult {
-	return v1.EntityFunc[SimpleDocument](func(ctx context.Context, e v1.Envelope, entity SimpleDocument) {
+	return v1.EntityFunc[SimpleDocument](func(_ context.Context, e v1.Envelope, entity SimpleDocument) {
 		r.events = append(r.events, event[SimpleDocument]{
 			envelope: e,
 			event:    entity,

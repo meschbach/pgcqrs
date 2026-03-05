@@ -6,7 +6,7 @@ import (
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
-// TODO: when other things move into the storage package, this should not be exported any longer
+// TranslateQuery translates a V1 query into storage operations.
 func TranslateQuery(app, stream string, input v1.WireQuery, extractEvent bool) *SQLQuery {
 	var projection string
 	if extractEvent {

@@ -5,11 +5,12 @@ import (
 	"net/http"
 )
 
+// HealCheckReply represents the health check status.
 type HealCheckReply struct {
 	Ok bool `json:"ok"`
 }
 
-func writeJsonResponse(writer http.ResponseWriter, entity interface{}) {
+func writeJSONResponse(writer http.ResponseWriter, entity interface{}) {
 	encoder := json.NewEncoder(writer)
 	if err := encoder.Encode(entity); err != nil {
 		panic(err)
@@ -17,8 +18,8 @@ func writeJsonResponse(writer http.ResponseWriter, entity interface{}) {
 }
 
 func (s *service) livenessRoute() http.HandlerFunc {
-	return func(writer http.ResponseWriter, request *http.Request) {
-		writeJsonResponse(writer, &HealCheckReply{
+	return func(writer http.ResponseWriter, _ *http.Request) {
+		writeJSONResponse(writer, &HealCheckReply{
 			Ok: true,
 		})
 	}
@@ -26,8 +27,8 @@ func (s *service) livenessRoute() http.HandlerFunc {
 
 func (s *service) readinessRoute() http.HandlerFunc {
 	//TOOD: should have a better check for being ready
-	return func(writer http.ResponseWriter, request *http.Request) {
-		writeJsonResponse(writer, &HealCheckReply{
+	return func(writer http.ResponseWriter, _ *http.Request) {
+		writeJSONResponse(writer, &HealCheckReply{
 			Ok: true,
 		})
 	}

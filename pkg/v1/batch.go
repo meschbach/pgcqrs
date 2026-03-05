@@ -11,6 +11,7 @@ type WireBatchR2Request struct {
 	OnID []WireBatchR2IDQuery `json:"ids"`
 }
 
+// Empty returns true if the WireBatchR2Request is empty.
 func (w WireBatchR2Request) Empty() bool {
 	return len(w.OnKinds) == 0 && len(w.OnID) == 0
 }

@@ -14,16 +14,18 @@ import (
 	"go.opentelemetry.io/otel/codes"
 )
 
-type HttpTransportLayer struct {
+// HTTPTransportLayer implements Transport using HTTP/REST.
+type HTTPTransportLayer struct {
 	BaseURL string
 	wire    *http.Client
 }
 
+// AllEnvelopes represents a collection of all event envelopes.
 type AllEnvelopes struct {
 	Envelopes []Envelope `json:"envelopes"`
 }
 
-func (c *HttpTransportLayer) post(parent context.Context, opName, resource string, requestEntity, responseEntity any) error {
+func (c *HTTPTransportLayer) post(parent context.Context, opName, resource string, requestEntity, responseEntity any) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:"+opName)
 	defer span.End()
 
@@ -44,7 +46,7 @@ func (c *HttpTransportLayer) post(parent context.Context, opName, resource strin
 	if err != nil {
 		return &TransportError{err}
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
 
 	if resp.StatusCode != 200 {
 		span.SetStatus(codes.Error, "unexpected response code")
@@ -58,7 +60,7 @@ func (c *HttpTransportLayer) post(parent context.Context, opName, resource strin
 }
 
 // TODO: decode -> to resulting entity
-func (c *HttpTransportLayer) get(parent context.Context, opName, resource string, decode func(d *json.Decoder) error) error {
+func (c *HTTPTransportLayer) get(parent context.Context, opName, resource string, decode func(d *json.Decoder) error) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:"+opName)
 	defer span.End()
 
@@ -88,7 +90,8 @@ func (c *HttpTransportLayer) get(parent context.Context, opName, resource string
 	return decode(d)
 }
 
-func (c *HttpTransportLayer) AllEnvelopes(parent context.Context, app, stream string) ([]Envelope, error) {
+// AllEnvelopes returns all event envelopes for the given app and stream.
+func (c *HTTPTransportLayer) AllEnvelopes(parent context.Context, app, stream string) ([]Envelope, error) {
 	var reply AllEnvelopes
 	err := c.get(parent, "AllEnvelopes", "/v1/app/"+app+"/"+stream+"/all", func(d *json.Decoder) error {
 		return d.Decode(&reply)
@@ -96,11 +99,13 @@ func (c *HttpTransportLayer) AllEnvelopes(parent context.Context, app, stream st
 	return reply.Envelopes, err
 }
 
+// SubmitReply represents the response after submitting an event.
 type SubmitReply struct {
-	Id int64 `json:"id"`
+	ID int64 `json:"id"`
 }
 
-func (c *HttpTransportLayer) Submit(parent context.Context, app, stream, kind string, event interface{}) (*Submitted, error) {
+// Submit sends an event to the remote service.
+func (c *HTTPTransportLayer) Submit(parent context.Context, app, stream, kind string, event interface{}) (*Submitted, error) {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:submit")
 	defer span.End()
 
@@ -135,10 +140,11 @@ func (c *HttpTransportLayer) Submit(parent context.Context, app, stream, kind st
 		span.SetStatus(codes.Error, "decoding error")
 		return nil, err
 	}
-	return &Submitted{ID: out.Id}, err
+	return &Submitted{ID: out.ID}, err
 }
 
-func (c *HttpTransportLayer) EnsureStream(parent context.Context, app, stream string) error {
+// EnsureStream ensures the given stream exists on the remote service.
+func (c *HTTPTransportLayer) EnsureStream(parent context.Context, app, stream string) error {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:ensure-stream")
 	defer span.End()
 
@@ -166,33 +172,39 @@ func (c *HttpTransportLayer) EnsureStream(parent context.Context, app, stream st
 	return nil
 }
 
-func (c *HttpTransportLayer) GetEvent(parent context.Context, app, stream string, id int64, payload interface{}) error {
+// GetEvent retrieves a specific event from the remote service.
+func (c *HTTPTransportLayer) GetEvent(parent context.Context, app, stream string, id int64, payload interface{}) error {
 	url := "/v1/app/" + app + "/" + stream + "/payload/" + strconv.FormatInt(id, 10)
 	return c.get(parent, "get-payload", url, func(d *json.Decoder) error {
 		return d.Decode(payload)
 	})
 }
 
-func (c *HttpTransportLayer) Query(parent context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error {
+// Query performs a query against the remote service.
+func (c *HTTPTransportLayer) Query(parent context.Context, domain, stream string, query WireQuery, out *WireQueryResult) error {
 	url := "/v1/app/" + domain + "/" + stream + "/query"
 	return c.post(parent, "query", url, query, out)
 }
 
-func (c *HttpTransportLayer) QueryBatch(parent context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error {
+// QueryBatch performs a batch query against the remote service.
+func (c *HTTPTransportLayer) QueryBatch(parent context.Context, domain, stream string, query WireQuery, out *WireBatchResults) error {
 	url := "/v1/app/" + domain + "/" + stream + "/query-batch"
 	return c.post(parent, "query-batch", url, query, out)
 }
 
-func (c *HttpTransportLayer) QueryBatchR2(parent context.Context, domain, stream string, query *WireBatchR2Request, out *WireBatchR2Result) error {
+// QueryBatchR2 performs an R2 batch query against the remote service.
+func (c *HTTPTransportLayer) QueryBatchR2(parent context.Context, domain, stream string, query *WireBatchR2Request, out *WireBatchR2Result) error {
 	url := "/v1/app/" + domain + "/" + stream + "/query-batch-r2"
 	return c.post(parent, "query-batch-r2", url, query, out)
 }
 
-func (c *HttpTransportLayer) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
+// Watch sets up a watch on the remote service.
+func (c *HTTPTransportLayer) Watch(_ context.Context, _ *ipc.QueryIn) (WatchInternal, error) {
 	return nil, errors.New("not implemented")
 }
 
-func (c *HttpTransportLayer) Meta(parent context.Context) (WireMetaV1, error) {
+// Meta retrieves metadata from the remote service.
+func (c *HTTPTransportLayer) Meta(parent context.Context) (WireMetaV1, error) {
 	var meta WireMetaV1
 	url := "/v1/app"
 	err := c.get(parent, "meta", url, func(d *json.Decoder) error {
@@ -201,8 +213,9 @@ func (c *HttpTransportLayer) Meta(parent context.Context) (WireMetaV1, error) {
 	return meta, err
 }
 
-func NewHttpTransport(url string) *HttpTransportLayer {
-	return &HttpTransportLayer{
+// NewHTTPTransport creates a new HTTPTransportLayer.
+func NewHTTPTransport(url string) *HTTPTransportLayer {
+	return &HTTPTransportLayer{
 		BaseURL: url,
 		wire: &http.Client{
 			Transport: otelhttp.NewTransport(http.DefaultTransport),
@@ -210,6 +223,7 @@ func NewHttpTransport(url string) *HttpTransportLayer {
 	}
 }
 
+// BadResponseCode represents an error for an unexpected HTTP response code.
 type BadResponseCode struct {
 	URL  string
 	Code int

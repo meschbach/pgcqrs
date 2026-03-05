@@ -18,10 +18,7 @@ func TestKindMatch(t *testing.T) {
 		t.Parallel()
 		kind := faker.Name()
 
-		h := setupHarness()
-		t.Cleanup(func() {
-			h.done()
-		})
+		h, _, _ := setupHarnessT(t)
 
 		genDoc(t, h, kind)
 		middle, middleID := genDoc(t, h, kind)
@@ -33,7 +30,7 @@ func TestKindMatch(t *testing.T) {
 			t.Parallel()
 			q := query2.NewQuery(h.stream)
 			found := 0
-			verifier := v1.EntityFunc[nestedStringDocument](func(ctx context.Context, e v1.Envelope, entity nestedStringDocument) {
+			verifier := v1.EntityFunc[nestedStringDocument](func(_ context.Context, e v1.Envelope, entity nestedStringDocument) {
 				assert.Equal(t, middleID, e.ID)
 				assert.Equal(t, middle.Root, entity.Root)
 				if assert.NotNil(t, middle.Nested) {
@@ -50,7 +47,7 @@ func TestKindMatch(t *testing.T) {
 			t.Parallel()
 			q := query2.NewQuery(h.stream)
 			var matched []matchedPair
-			verifier := v1.EntityFunc[nestedStringDocument](func(ctx context.Context, e v1.Envelope, entity nestedStringDocument) {
+			verifier := v1.EntityFunc[nestedStringDocument](func(_ context.Context, e v1.Envelope, entity nestedStringDocument) {
 				matched = append(matched, matchedPair{
 					envelope: e,
 					entity:   entity,
@@ -67,7 +64,7 @@ func TestKindMatch(t *testing.T) {
 			t.Parallel()
 			count := 0
 			q := query2.NewQuery(h.stream)
-			q.OnKind(faker.Name()).Subset(nestedStringDocument{Root: middle.Root}).On(func(ctx context.Context, e v1.Envelope, rawJSON json.RawMessage) error {
+			q.OnKind(faker.Name()).Subset(nestedStringDocument{Root: middle.Root}).On(func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
 				count++
 				return nil
 			})
@@ -78,10 +75,7 @@ func TestKindMatch(t *testing.T) {
 
 	t.Run("Given a repository with multiple document kinds stored", func(t *testing.T) {
 		t.Parallel()
-		h := setupHarness()
-		t.Cleanup(func() {
-			h.done()
-		})
+		h, _, _ := setupHarnessT(t)
 
 		kind1 := faker.FirstName()
 		doc1, doc1ID := genDoc(t, h, kind1)
@@ -94,13 +88,13 @@ func TestKindMatch(t *testing.T) {
 			documentCount := 0
 			q.OnKind(kind1).
 				Subset(nestedStringDocument{Root: doc1.Root}).
-				On(v1.EntityFunc[nestedStringDocument](func(ctx context.Context, e v1.Envelope, entity nestedStringDocument) {
+				On(v1.EntityFunc[nestedStringDocument](func(_ context.Context, e v1.Envelope, _ nestedStringDocument) {
 					documentCount++
 					assert.Equal(t, doc1ID, e.ID)
 				}))
 			q.OnKind(kind2).
 				Subset(nestedStringDocument{Nested: &NestedString{Value: doc2.Nested.Value}}).
-				On(v1.EntityFunc[nestedStringDocument](func(ctx context.Context, e v1.Envelope, entity nestedStringDocument) {
+				On(v1.EntityFunc[nestedStringDocument](func(_ context.Context, e v1.Envelope, _ nestedStringDocument) {
 					documentCount++
 					assert.Equal(t, doc2ID, e.ID)
 				}))

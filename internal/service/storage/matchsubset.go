@@ -1,3 +1,4 @@
+// Package storage provides the database storage implementation.
 package storage
 
 import (
@@ -5,6 +6,7 @@ import (
 	"fmt"
 )
 
+// MatchSubset represents a query operation that matches documents against a JSON subset.
 type MatchSubset struct {
 	App    string
 	Stream string

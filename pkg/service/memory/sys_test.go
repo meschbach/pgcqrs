@@ -16,10 +16,10 @@ import (
 
 func TestSystem(t *testing.T) {
 	t.Parallel()
-	ctx, done := context.WithCancel(context.Background())
+	ctx, done := context.WithCancel(t.Context())
 	t.Cleanup(done)
 
-	client := testgrpc.InternalGRPConnection(t, ctx, func(server *grpc.Server) {
+	client := testgrpc.InternalGRPConnection(ctx, t, func(server *grpc.Server) {
 		cmdService, queryService := New()
 		ipc.RegisterCommandServer(server, cmdService)
 		ipc.RegisterQueryServer(server, queryService)

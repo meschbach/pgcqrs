@@ -19,7 +19,7 @@ var truePointer = &trueValue
 
 func TestV2SystemProxy(t *testing.T) {
 	t.Parallel()
-	ctx, done := context.WithCancel(context.Background())
+	ctx, done := context.WithCancel(t.Context())
 	t.Cleanup(done)
 
 	transport := v1.NewMemoryTransport()

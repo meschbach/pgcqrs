@@ -3,6 +3,7 @@ package systest
 import (
 	"context"
 	"os"
+	"testing"
 
 	"github.com/go-faker/faker/v4"
 	"github.com/meschbach/pgcqrs/internal/junk"
@@ -16,8 +17,8 @@ type harness struct {
 	stream *v1.Stream
 }
 
-func setupHarness() *harness {
-	ctx, done := context.WithCancel(context.Background())
+func setupHarnessT(t *testing.T) *harness {
+	ctx, done := context.WithCancel(t.Context())
 	transport, hasTransport := os.LookupEnv("PGCQRS_TEST_TRANSPORT")
 	url, hasURL := os.LookupEnv("PGCQRS_TEST_URL")
 	appBase, hasAppBase := os.LookupEnv("PGCQRS_TEST_APP_BASE")
@@ -45,6 +46,7 @@ func setupHarness() *harness {
 		system: system,
 		stream: stream,
 	}
+	t.Cleanup(done)
 	return out
 }
 

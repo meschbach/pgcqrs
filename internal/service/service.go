@@ -22,6 +22,7 @@ type service struct {
 	storage    *storage
 	repository *storage2.Repository
 	bus        *bus
+	positions  *storage2.PositionStore
 }
 
 // Result represents a generic operation result.
@@ -91,7 +92,117 @@ func (s *service) routes() http.Handler {
 	v1Router.Path("/app/{app}/{stream}/query-batch").Methods(http.MethodPost).HandlerFunc(s.v1QueryBatchRoute())
 	v1Router.Path("/app/{app}/{stream}/query-batch-r2").Methods(http.MethodPost).HandlerFunc(s.v1QueryBatchR2Route())
 	v1Router.Path("/app").Methods(http.MethodGet).HandlerFunc(s.v1Meta())
+
+	v1Router.PathPrefix("/domains/{domain}/streams/{stream}/positions/{consumer}").Methods(http.MethodGet).HandlerFunc(s.getPosition())
+	v1Router.PathPrefix("/domains/{domain}/streams/{stream}/positions/{consumer}").Methods(http.MethodPost).HandlerFunc(s.setPosition())
+	v1Router.PathPrefix("/domains/{domain}/streams/{stream}/positions/{consumer}").Methods(http.MethodDelete).HandlerFunc(s.deletePosition())
+	v1Router.PathPrefix("/domains/{domain}/streams/{stream}/positions").Methods(http.MethodGet).HandlerFunc(s.listConsumers())
+
 	return root
+}
+
+func (s *service) getPosition() func(http.ResponseWriter, *http.Request) {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		vars := mux.Vars(request)
+		domain := vars["domain"]
+		stream := vars["stream"]
+		consumer := vars["consumer"]
+
+		eventID, found, err := s.positions.GetPosition(request.Context(), domain, stream, consumer)
+		if err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+
+		type positionResponse struct {
+			EventID int64 `json:"eventID"`
+			Found   bool  `json:"found"`
+		}
+		bytes, err := json.Marshal(positionResponse{EventID: eventID, Found: found})
+		junk.Must(err)
+		writer.Header().Set("Content-Type", "application/json")
+		_, err = writer.Write(bytes)
+		junk.Must(err)
+	}
+}
+
+func (s *service) setPosition() func(http.ResponseWriter, *http.Request) {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		vars := mux.Vars(request)
+		domain := vars["domain"]
+		stream := vars["stream"]
+		consumer := vars["consumer"]
+
+		type setPositionRequest struct {
+			EventID int64 `json:"eventID"`
+		}
+		var req setPositionRequest
+		if err := json.NewDecoder(request.Body).Decode(&req); err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+
+		result, err := s.positions.SetPosition(request.Context(), domain, stream, consumer, req.EventID)
+		if err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+
+		type setPositionResponse struct {
+			Ok              bool   `json:"ok"`
+			CurrentEventID  int64  `json:"currentEventID"`
+			PreviousEventID *int64 `json:"previousEventID,omitempty"`
+		}
+		bytes, err := json.Marshal(setPositionResponse{Ok: true, CurrentEventID: result.CurrentEventID, PreviousEventID: result.PreviousEventID})
+		junk.Must(err)
+		writer.Header().Set("Content-Type", "application/json")
+		_, err = writer.Write(bytes)
+		junk.Must(err)
+	}
+}
+
+func (s *service) deletePosition() func(http.ResponseWriter, *http.Request) {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		vars := mux.Vars(request)
+		domain := vars["domain"]
+		stream := vars["stream"]
+		consumer := vars["consumer"]
+
+		err := s.positions.DeletePosition(request.Context(), domain, stream, consumer)
+		if err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+
+		bytes, err := json.Marshal(Result{Ok: true})
+		junk.Must(err)
+		writer.Header().Set("Content-Type", "application/json")
+		_, err = writer.Write(bytes)
+		junk.Must(err)
+	}
+}
+
+func (s *service) listConsumers() func(http.ResponseWriter, *http.Request) {
+	return func(writer http.ResponseWriter, request *http.Request) {
+		vars := mux.Vars(request)
+		domain := vars["domain"]
+		stream := vars["stream"]
+
+		consumers, err := s.positions.ListConsumers(request.Context(), domain, stream)
+		if err != nil {
+			restful.InternalError(writer, request, err)
+			return
+		}
+
+		type listConsumersResponse struct {
+			Consumers []string `json:"consumers"`
+		}
+		bytes, err := json.Marshal(listConsumersResponse{Consumers: consumers})
+		junk.Must(err)
+		writer.Header().Set("Content-Type", "application/json")
+		_, err = writer.Write(bytes)
+		junk.Must(err)
+	}
 }
 
 func (s *service) serve(_ context.Context, config *ListenerConfig) {
@@ -124,9 +235,10 @@ func Serve(ctx context.Context, cfg *Config) {
 	if err != nil {
 		panic(err)
 	}
+	//nolint
 	go func() {
 		<-ctx.Done()
-		//nolint:forbidigo
+		//nolint
 		shutdownCtx, done := context.WithTimeout(context.Background(), 30*time.Second)
 		defer done()
 		if err := component.ShutdownGracefully(shutdownCtx); err != nil {
@@ -150,14 +262,16 @@ func Serve(ctx context.Context, cfg *Config) {
 		fmt.Printf("Connected to database: user=%s host=%s database=%s\n", connConfig.User, connConfig.Host, connConfig.Database)
 		s.storage = &storage{pg: pool}
 		s.repository = storage2.RepositoryWithPool(pool)
+		s.positions = storage2.NewPositionStore(pool)
 
 		app := suture.NewSimple("pgcqrs")
 		if cfg.GRPCListener != nil {
 			app.Add(&grpcPort{
-				config:  cfg.GRPCListener,
-				oldCore: s.storage,
-				core:    s.repository,
-				bus:     s.bus,
+				config:    cfg.GRPCListener,
+				oldCore:   s.storage,
+				core:      s.repository,
+				bus:       s.bus,
+				positions: storage2.NewPositionStore(pool),
 			})
 		}
 		appDone = app.ServeBackground(ctx)

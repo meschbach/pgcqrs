@@ -33,6 +33,16 @@ service Query {
   rpc Watch(QueryIn) returns (stream QueryOut);
 }
 
+/**
+ * ConsumerPosition is a service to manage consumer positions in streams.
+ */
+service ConsumerPosition {
+  rpc SetPosition(SetPositionIn) returns (SetPositionOut);
+  rpc GetPosition(GetPositionIn) returns (GetPositionOut);
+  rpc ListConsumers(ListConsumersIn) returns (ListConsumersOut);
+  rpc DeletePosition(DeletePositionIn) returns (DeletePositionOut);
+}
+
 message CreateStreamIn {
   DomainStream target = 1;
 }
@@ -161,6 +171,10 @@ message QueryIn {
    * onEach matches all events within the the target domain stream.
    */
   optional OnEachEvent onEach = 5;
+  /**
+   * afterID filters events to only those with ID greater than the specified value.
+   */
+  optional int64 afterID = 6;
 }
 
 /**
@@ -248,4 +262,44 @@ message ResultInclude {
    * body returns the JSON encoded body of the event
    */
   optional bool body = 2;
+}
+
+message SetPositionIn {
+  DomainStream events = 1;
+  string consumer = 2;
+  int64 eventID = 3;
+}
+
+message SetPositionOut {
+  bool ok = 1;
+  string error = 2;
+  int64 currentEventID = 3;
+  int64 previousEventID = 4;
+}
+
+message GetPositionIn {
+  DomainStream events = 1;
+  string consumer = 2;
+}
+
+message GetPositionOut {
+  int64 eventID = 1;
+  bool found = 2;
+}
+
+message ListConsumersIn {
+  DomainStream events = 1;
+}
+
+message ListConsumersOut {
+  repeated string consumers = 1;
+}
+
+message DeletePositionIn {
+  DomainStream events = 1;
+  string consumer = 2;
+}
+
+message DeletePositionOut {
+  bool ok = 1;
 }

@@ -42,7 +42,7 @@ case "$cmd" in
     cmd_up
     ;;
   down)
-    cmd_remove
+    cmd_down
     ;;
   *)
     cmd_unknown_help

@@ -14,6 +14,9 @@ type filterLoader interface {
 }
 
 func filter(ctx context.Context, loader filterLoader, query WireQuery, e Envelope) (bool, error) {
+	if query.AfterID != nil && e.ID <= *query.AfterID {
+		return false, nil
+	}
 	if len(query.KindConstraint) == 0 {
 		return true, nil
 	}

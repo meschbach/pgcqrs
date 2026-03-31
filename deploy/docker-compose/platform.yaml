@@ -55,4 +55,4 @@ networks:
   integration:
     name: pgcqrs_integration
     labels:
-      com.meschbach/version: 1
+      com.meschbach/version: 2

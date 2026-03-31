@@ -4,10 +4,11 @@ import "fmt"
 
 // EachKind represents a query operation that executes for each document of a specific kind.
 type EachKind struct {
-	App    string
-	Stream string
-	Op     int
-	Kind   string
+	App     string
+	Stream  string
+	Op      int
+	Kind    string
+	AfterID *int64
 }
 
 func (e *EachKind) append(q *SQLQuery) {
@@ -17,6 +18,10 @@ INNER JOIN events_kind ek on e.kind_id = ek.id
 INNER JOIN events_stream es ON e.stream_id = es.id
 WHERE es.app = %s and es.stream = %s and ek.kind = %s`,
 		e.Op, q.hole(e.App), q.hole(e.Stream), q.hole(e.Kind))
+
+	if e.AfterID != nil {
+		query += fmt.Sprintf(" AND e.id > %s", q.hole(*e.AfterID))
+	}
 
 	q.append(query)
 }

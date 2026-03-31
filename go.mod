@@ -1,8 +1,6 @@
 module github.com/meschbach/pgcqrs
 
-go 1.24.2
-
-toolchain go1.24.4
+go 1.25
 
 require (
 	github.com/elgs/gojq v0.0.0-20230628214826-df5c4045598e

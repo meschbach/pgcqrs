@@ -26,8 +26,9 @@ var no = &falsy
 
 // GrpcAdapter implements Transport using gRPC.
 type GrpcAdapter struct {
-	commands ipc.CommandClient
-	queries  ipc.QueryClient
+	commands  ipc.CommandClient
+	queries   ipc.QueryClient
+	positions ipc.ConsumerPositionClient
 }
 
 // NewGRPCTransport creates a new GrpcAdapter.
@@ -64,9 +65,11 @@ func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	}
 	commands := ipc.NewCommandClient(conn)
 	queries := ipc.NewQueryClient(conn)
+	positions := ipc.NewConsumerPositionClient(conn)
 	return &GrpcAdapter{
 		commands,
 		queries,
+		positions,
 	}, nil
 }
 
@@ -339,6 +342,9 @@ func (g *GrpcAdapter) buildBatchR2Request(domain, stream string, batch *WireBatc
 			Op: int64(i.Op),
 		})
 	}
+	if batch.AfterID != nil {
+		in.AfterID = batch.AfterID
+	}
 	return in, nil
 }
 
@@ -407,6 +413,61 @@ func (g *GrpcAdapter) Meta(ctx context.Context) (WireMetaV1, error) {
 		result.Domains = append(result.Domains, *d)
 	}
 	return result, nil
+}
+
+// SetPosition sets the consumer's position in a stream via gRPC.
+func (g *GrpcAdapter) SetPosition(ctx context.Context, domain, stream, consumer string, eventID int64) (*SetPositionResult, error) {
+	resp, err := g.positions.SetPosition(ctx, &ipc.SetPositionIn{
+		Events:   &ipc.DomainStream{Domain: domain, Stream: stream},
+		Consumer: consumer,
+		EventID:  eventID,
+	})
+	if err != nil {
+		return nil, err
+	}
+	if !resp.Ok {
+		return nil, fmt.Errorf("%s", resp.Error)
+	}
+	var prevID *int64
+	if resp.GetPreviousEventID() != 0 {
+		prevID = &resp.PreviousEventID
+	}
+	return &SetPositionResult{
+		PreviousEventID: prevID,
+		CurrentEventID:  resp.GetCurrentEventID(),
+	}, nil
+}
+
+// GetPosition gets the consumer's position in a stream via gRPC.
+func (g *GrpcAdapter) GetPosition(ctx context.Context, domain, stream, consumer string) (eventID int64, found bool, err error) {
+	resp, err := g.positions.GetPosition(ctx, &ipc.GetPositionIn{
+		Events:   &ipc.DomainStream{Domain: domain, Stream: stream},
+		Consumer: consumer,
+	})
+	if err != nil {
+		return 0, false, err
+	}
+	return resp.EventID, resp.Found, nil
+}
+
+// ListConsumers lists all consumers for a stream via gRPC.
+func (g *GrpcAdapter) ListConsumers(ctx context.Context, domain, stream string) ([]string, error) {
+	resp, err := g.positions.ListConsumers(ctx, &ipc.ListConsumersIn{
+		Events: &ipc.DomainStream{Domain: domain, Stream: stream},
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Consumers, nil
+}
+
+// DeletePosition deletes the consumer's position in a stream via gRPC.
+func (g *GrpcAdapter) DeletePosition(ctx context.Context, domain, stream, consumer string) error {
+	_, err := g.positions.DeletePosition(ctx, &ipc.DeletePositionIn{
+		Events:   &ipc.DomainStream{Domain: domain, Stream: stream},
+		Consumer: consumer,
+	})
+	return err
 }
 
 // Watch sets up a watch via gRPC.

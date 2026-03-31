@@ -198,6 +198,83 @@ func (c *HTTPTransportLayer) QueryBatchR2(parent context.Context, domain, stream
 	return c.post(parent, "query-batch-r2", url, query, out)
 }
 
+// SetPosition sets the consumer's position in a stream.
+func (c *HTTPTransportLayer) SetPosition(parent context.Context, domain, stream, consumer string, eventID int64) (*SetPositionResult, error) {
+	url := fmt.Sprintf("/v1/domains/%s/streams/%s/positions/%s", domain, stream, consumer)
+	type setPositionRequest struct {
+		EventID int64 `json:"eventID"`
+	}
+	type setPositionResponse struct {
+		CurrentEventID  int64  `json:"currentEventID"`
+		PreviousEventID *int64 `json:"previousEventID,omitempty"`
+	}
+	var resp setPositionResponse
+	err := c.post(parent, "setPosition", url, setPositionRequest{EventID: eventID}, &resp)
+	if err != nil {
+		return nil, err
+	}
+	return &SetPositionResult{
+		PreviousEventID: resp.PreviousEventID,
+		CurrentEventID:  resp.CurrentEventID,
+	}, nil
+}
+
+// GetPosition gets the consumer's position in a stream.
+func (c *HTTPTransportLayer) GetPosition(parent context.Context, domain, stream, consumer string) (eventID int64, found bool, err error) {
+	url := fmt.Sprintf("/v1/domains/%s/streams/%s/positions/%s", domain, stream, consumer)
+	type getPositionResponse struct {
+		EventID int64 `json:"eventID"`
+		Found   bool  `json:"found"`
+	}
+	var resp getPositionResponse
+	err = c.get(parent, "getPosition", url, func(d *json.Decoder) error {
+		return d.Decode(&resp)
+	})
+	if err != nil {
+		return 0, false, err
+	}
+	return resp.EventID, resp.Found, nil
+}
+
+// ListConsumers lists all consumers for a stream.
+func (c *HTTPTransportLayer) ListConsumers(parent context.Context, domain, stream string) ([]string, error) {
+	url := fmt.Sprintf("/v1/domains/%s/streams/%s/positions", domain, stream)
+	type listConsumersResponse struct {
+		Consumers []string `json:"consumers"`
+	}
+	var resp listConsumersResponse
+	err := c.get(parent, "listConsumers", url, func(d *json.Decoder) error {
+		return d.Decode(&resp)
+	})
+	if err != nil {
+		return nil, err
+	}
+	return resp.Consumers, nil
+}
+
+// DeletePosition deletes the consumer's position in a stream.
+func (c *HTTPTransportLayer) DeletePosition(parent context.Context, domain, stream, consumer string) error {
+	ctx, span := tracer.Start(parent, "pg-cqrs.v1:deletePosition")
+	defer span.End()
+
+	url := c.BaseURL + fmt.Sprintf("/v1/domains/%s/streams/%s/positions/%s", domain, stream, consumer)
+	req, err := http.NewRequestWithContext(ctx, http.MethodDelete, url, http.NoBody)
+	if err != nil {
+		return err
+	}
+
+	resp, err := c.wire.Do(req)
+	if err != nil {
+		return &TransportError{err}
+	}
+	defer func() { err = errors.Join(err, resp.Body.Close()) }()
+
+	if resp.StatusCode != 200 {
+		return &BadResponseCode{URL: url, Code: resp.StatusCode}
+	}
+	return nil
+}
+
 // Watch sets up a watch on the remote service.
 func (c *HTTPTransportLayer) Watch(_ context.Context, _ *ipc.QueryIn) (WatchInternal, error) {
 	return nil, errors.New("not implemented")

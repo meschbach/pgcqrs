@@ -22,8 +22,9 @@ type memoryCommand interface {
 }
 
 type memory struct {
-	input   chan memoryOp
-	domains map[string]*memoryDomain
+	input     chan memoryOp
+	domains   map[string]*memoryDomain
+	positions map[string]map[string]int64
 }
 
 type memoryDomain struct {
@@ -68,8 +69,9 @@ func (m *memory) simulateNetwork(ctx context.Context, cmd memoryCommand) error {
 // NewMemoryTransport creates a new in-memory Transport.
 func NewMemoryTransport() Transport {
 	m := &memory{
-		input:   make(chan memoryOp, 32),
-		domains: make(map[string]*memoryDomain),
+		input:     make(chan memoryOp, 32),
+		domains:   make(map[string]*memoryDomain),
+		positions: make(map[string]map[string]int64),
 	}
 	go m.runService()
 	return m
@@ -232,6 +234,9 @@ func (m *memory) QueryBatchR2(parent context.Context, domain, stream string, que
 	}
 
 	for _, e := range envelopes {
+		if query.AfterID != nil && e.ID <= *query.AfterID {
+			continue
+		}
 		if err := m.processEnvelopeForKinds(parent, domain, stream, query, e, out); err != nil {
 			return err
 		}
@@ -459,4 +464,75 @@ func (m *memoryWatch) processNewEvent(ctx context.Context, id int64) error {
 	}
 	fmt.Printf("\tpost-filter: (count: %d)\n", len(m.pending))
 	return nil
+}
+
+func (m *memory) positionKey(domain, stream, consumer string) string {
+	return domain + "/" + stream + "/" + consumer
+}
+
+func (m *memory) SetPosition(ctx context.Context, domain, stream, consumer string, eventID int64) (*SetPositionResult, error) {
+	var prevEventID *int64
+	var setErr error
+	err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		key := m.positionKey(domain, stream, consumer)
+		if streamPositions, ok := m.positions[key]; ok {
+			if currentID, exists := streamPositions[consumer]; exists {
+				if eventID < currentID {
+					setErr = fmt.Errorf("cannot set position backwards")
+					return
+				}
+				prevEventID = &currentID
+			}
+		}
+		if _, ok := m.positions[key]; !ok {
+			m.positions[key] = make(map[string]int64)
+		}
+		m.positions[key][consumer] = eventID
+	}})
+	if err != nil {
+		return nil, err
+	}
+	if setErr != nil {
+		return nil, setErr
+	}
+	return &SetPositionResult{PreviousEventID: prevEventID, CurrentEventID: eventID}, nil
+}
+
+func (m *memory) GetPosition(ctx context.Context, domain, stream, consumer string) (eventID int64, found bool, err error) {
+	err = m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		key := m.positionKey(domain, stream, consumer)
+		if streamPositions, ok := m.positions[key]; ok {
+			if id, ok := streamPositions[consumer]; ok {
+				eventID = id
+				found = true
+			}
+		}
+	}})
+	return eventID, found, err
+}
+
+func (m *memory) ListConsumers(ctx context.Context, domain, stream string) ([]string, error) {
+	var consumers []string
+	err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		prefix := domain + "/" + stream + "/"
+		for key := range m.positions {
+			if len(key) > len(prefix) && key[:len(prefix)] == prefix {
+				consumer := key[len(prefix):]
+				consumers = append(consumers, consumer)
+			}
+		}
+	}})
+	return consumers, err
+}
+
+func (m *memory) DeletePosition(ctx context.Context, domain, stream, consumer string) error {
+	return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		key := m.positionKey(domain, stream, consumer)
+		if streamPositions, ok := m.positions[key]; ok {
+			delete(streamPositions, consumer)
+			if len(streamPositions) == 0 {
+				delete(m.positions, key)
+			}
+		}
+	}})
 }

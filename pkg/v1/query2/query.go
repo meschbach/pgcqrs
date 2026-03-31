@@ -9,9 +9,10 @@ import (
 
 // Query allows for building and executing queries against a stream.
 type Query struct {
-	stream v1.StreamTransport
-	kinds  []*KindClause
-	ids    []*IDClause
+	stream  v1.StreamTransport
+	kinds   []*KindClause
+	ids     []*IDClause
+	afterID *int64
 }
 
 // NewQuery creates a new query builder for the given stream.
@@ -31,6 +32,12 @@ func (q *Query) OnID(id int64) *IDClause {
 	i := &IDClause{id: id}
 	q.ids = append(q.ids, i)
 	return i
+}
+
+// After adds a clause to filter events to only those with an ID greater than the specified value.
+func (q *Query) After(id int64) *Query {
+	q.afterID = &id
+	return q
 }
 
 type handlers struct {
@@ -86,6 +93,9 @@ func (q *Query) buildBatchRequest(ctx context.Context) (*handlers, *v1.WireBatch
 			return nil, nil, err
 		}
 	}
+	if q.afterID != nil {
+		request.AfterID = q.afterID
+	}
 	return handlers, request, nil
 }
 
@@ -112,6 +122,9 @@ func (q *Query) Watch(ctx context.Context) (pump *Watch, setup error) {
 		if err := c.prepareQuery(ctx, request, dispatcher); err != nil {
 			return nil, err
 		}
+	}
+	if q.afterID != nil {
+		request.AfterID = q.afterID
 	}
 
 	// Short circuit the request when there are no usable query elements

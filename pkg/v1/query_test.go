@@ -67,8 +67,9 @@ type MatcherExample struct {
 func TestMatchFilter(t *testing.T) {
 	t.Parallel()
 	MemoryHarness(t, func(ctx context.Context, h Harness) {
-		kind1 := faker.Word()
-		kind2 := faker.Word()
+		words := faking.NewUniqueWords()
+		kind1 := words.Next()
+		kind2 := words.Next()
 		target := faking.RandInt()
 
 		h.stream.MustSubmit(ctx, kind1, MatcherEntity{IntValue: faking.RandInt()})

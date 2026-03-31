@@ -13,19 +13,21 @@ func TranslateBatchR2(_ context.Context, app, stream string, request *v1.WireBat
 	for _, kind := range request.OnKinds {
 		if kind.All != nil {
 			output = append(output, &EachKind{
-				App:    app,
-				Stream: stream,
-				Op:     *kind.All,
-				Kind:   kind.Kind,
+				App:     app,
+				Stream:  stream,
+				Op:      *kind.All,
+				Kind:    kind.Kind,
+				AfterID: request.AfterID,
 			})
 		}
 		for _, match := range kind.Match {
 			output = append(output, &MatchSubset{
-				App:    app,
-				Stream: stream,
-				Op:     match.Op,
-				Kind:   kind.Kind,
-				Subset: match.Subset,
+				App:     app,
+				Stream:  stream,
+				Op:      match.Op,
+				Kind:    kind.Kind,
+				Subset:  match.Subset,
+				AfterID: request.AfterID,
 			})
 		}
 	}

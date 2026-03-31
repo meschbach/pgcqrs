@@ -9,6 +9,8 @@ type WireBatchR2Request struct {
 	OnKinds []WireBatchR2KindQuery `json:"kinds"`
 	// OnID allows recalling events with a specific ID
 	OnID []WireBatchR2IDQuery `json:"ids"`
+	// AfterID filters events to only those with ID greater than the specified value
+	AfterID *int64 `json:"afterID,omitempty"`
 }
 
 // Empty returns true if the WireBatchR2Request is empty.

@@ -28,8 +28,9 @@ function cmd_up() {
   echo
   (
   export PGCQRS_STORAGE_POSTGRES_URL=integ_tests:integ-tests-password@localhost:16003/integ_db?sslmode=disable
+  export PGCQRS_INTEG_POSTGRES_URL=postgres:password1234@localhost:16003/postgres?sslmode=disable
   go run ./cmd/migrator primary
-  go test -count 1 ./pkg/... ./internal/... -- -integration
+  go test -timeout 10s -count 1 ./pkg/... ./internal/...
   )
 
   #

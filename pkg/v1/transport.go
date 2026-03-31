@@ -7,6 +7,12 @@ import (
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 )
 
+// SetPositionResult contains the result of a SetPosition operation.
+type SetPositionResult struct {
+	PreviousEventID *int64
+	CurrentEventID  int64
+}
+
 // Transport defines the interface for different communication mechanisms (e.g. memory, HTTP, gRPC).
 type Transport interface {
 	EnsureStream(ctx context.Context, domain string, stream string) error
@@ -21,6 +27,11 @@ type Transport interface {
 	QueryBatchR2(ctx context.Context, domain, stream string, batch *WireBatchR2Request, out *WireBatchR2Result) error
 	Meta(ctx context.Context) (WireMetaV1, error)
 	Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error)
+
+	SetPosition(ctx context.Context, domain, stream, consumer string, eventID int64) (*SetPositionResult, error)
+	GetPosition(ctx context.Context, domain, stream, consumer string) (int64, bool, error)
+	ListConsumers(ctx context.Context, domain, stream string) ([]string, error)
+	DeletePosition(ctx context.Context, domain, stream, consumer string) error
 }
 
 // StreamTransport defines methods for basic stream operations.
@@ -33,6 +44,7 @@ type StreamTransport interface {
 // WireQuery defines the constraints for a stream query.
 type WireQuery struct {
 	KindConstraint []KindConstraint
+	AfterID        *int64
 }
 
 // WireQueryResult contains the results of a stream query.

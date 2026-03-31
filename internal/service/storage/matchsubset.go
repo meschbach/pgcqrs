@@ -8,11 +8,12 @@ import (
 
 // MatchSubset represents a query operation that matches documents against a JSON subset.
 type MatchSubset struct {
-	App    string
-	Stream string
-	Op     int
-	Kind   string
-	Subset json.RawMessage
+	App     string
+	Stream  string
+	Op      int
+	Kind    string
+	Subset  json.RawMessage
+	AfterID *int64
 }
 
 func (m *MatchSubset) append(q *SQLQuery) {
@@ -22,6 +23,10 @@ INNER JOIN events_kind ek on e.kind_id = ek.id
 INNER JOIN events_stream es ON e.stream_id = es.id
 WHERE es.app = %s and es.stream = %s and ek.kind = %s AND e.event @> %s`,
 		m.Op, q.hole(m.App), q.hole(m.Stream), q.hole(m.Kind), q.hole(m.Subset))
+
+	if m.AfterID != nil {
+		query += fmt.Sprintf(" AND e.id > %s", q.hole(*m.AfterID))
+	}
 
 	q.append(query)
 }

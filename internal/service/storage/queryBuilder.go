@@ -22,6 +22,10 @@ func TranslateQuery(app, stream string, input v1.WireQuery, extractEvent bool) *
 	out.hole(app)
 	out.hole(stream)
 
+	if input.AfterID != nil {
+		out.append("AND e.id > " + out.hole(*input.AfterID))
+	}
+
 	joiner := "AND ("
 	for _, k := range input.KindConstraint {
 		out.append(joiner)

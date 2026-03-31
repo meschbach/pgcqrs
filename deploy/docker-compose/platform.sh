@@ -8,6 +8,13 @@ cmd="$1" ; shift || true
 # Up
 ########################################################################################################################
 function cmd_up() {
+  network_count=$(docker network ls |grep pgcqrs_integration |wc -l)
+  if [ $network_count = 1 ]; then
+    version=$(docker network inspect 'pgcqrs_integration' --format='{{json .Labels}}' |jq -r '.["com.meschbach/version"]')
+    if [ $version = 1 ]; then
+      cmd_down
+    fi
+  fi
   (cd $self_dir
   docker-compose --file "$self_dir/platform.yaml" --project-name pgcqrs_platform up --detach --remove-orphans
   )
@@ -18,7 +25,8 @@ function cmd_up() {
 ########################################################################################################################
 function cmd_down() {
   (cd $self_dir
-  docker-compose --file "$self_dir/platform.yaml" --project-name pgcqrs_platform down
+  docker-compose --file "$self_dir/platform.yaml" --project-name pgcqrs_platform down --remove-orphans
+  docker volume rm pgcqrs_platform_pgcqrs_integration_pg_data || echo "WARNING: pgcqrs_platform_pgcqrs_integration_pg_data was not removed"
   )
 }
 
@@ -42,7 +50,7 @@ case "$cmd" in
     cmd_up
     ;;
   down)
-    cmd_remove
+    cmd_down
     ;;
   *)
     cmd_unknown_help

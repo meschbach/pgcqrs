@@ -52,6 +52,51 @@ type grpcQuery struct {
 	bus     *bus
 }
 
+type grpcConsumerPosition struct {
+	ipc.UnimplementedConsumerPositionServer
+	store *storage2.PositionStore
+}
+
+func (g *grpcConsumerPosition) SetPosition(ctx context.Context, in *ipc.SetPositionIn) (*ipc.SetPositionOut, error) {
+	result, err := g.store.SetPosition(ctx, in.Events.Domain, in.Events.Stream, in.Consumer, in.EventID)
+	if err != nil {
+		return &ipc.SetPositionOut{Ok: false, Error: err.Error()}, nil
+	}
+	var prevID int64
+	if result.PreviousEventID != nil {
+		prevID = *result.PreviousEventID
+	}
+	return &ipc.SetPositionOut{
+		Ok:              true,
+		CurrentEventID:  result.CurrentEventID,
+		PreviousEventID: prevID,
+	}, nil
+}
+
+func (g *grpcConsumerPosition) GetPosition(ctx context.Context, in *ipc.GetPositionIn) (*ipc.GetPositionOut, error) {
+	eventID, found, err := g.store.GetPosition(ctx, in.Events.Domain, in.Events.Stream, in.Consumer)
+	if err != nil {
+		return nil, err
+	}
+	return &ipc.GetPositionOut{EventID: eventID, Found: found}, nil
+}
+
+func (g *grpcConsumerPosition) ListConsumers(ctx context.Context, in *ipc.ListConsumersIn) (*ipc.ListConsumersOut, error) {
+	consumers, err := g.store.ListConsumers(ctx, in.Events.Domain, in.Events.Stream)
+	if err != nil {
+		return nil, err
+	}
+	return &ipc.ListConsumersOut{Consumers: consumers}, nil
+}
+
+func (g *grpcConsumerPosition) DeletePosition(ctx context.Context, in *ipc.DeletePositionIn) (*ipc.DeletePositionOut, error) {
+	err := g.store.DeletePosition(ctx, in.Events.Domain, in.Events.Stream, in.Consumer)
+	if err != nil {
+		return nil, err
+	}
+	return &ipc.DeletePositionOut{Ok: true}, nil
+}
+
 func (g *grpcQuery) ListStreams(ctx context.Context, _ *ipc.ListStreamsIn) (*ipc.ListStreamsOut, error) {
 	span := trace.SpanFromContext(ctx)
 	//todo: convert to streaming to reduce heap usage on the service
@@ -91,13 +136,19 @@ func (g *grpcQuery) Get(ctx context.Context, in *ipc.GetIn) (*ipc.GetOut, error)
 func buildQueryOps(events *ipc.DomainStream, in *ipc.QueryIn) ([]storage2.Operation, error) {
 	var ops []storage2.Operation
 
+	var afterID *int64
+	if in.AfterID != nil {
+		afterID = in.AfterID
+	}
+
 	for _, kClause := range in.OnKind {
 		if kClause.AllOp != nil {
 			ops = append(ops, &storage2.EachKind{
-				App:    events.Domain,
-				Stream: events.Stream,
-				Op:     int(*kClause.AllOp),
-				Kind:   kClause.Kind,
+				App:     events.Domain,
+				Stream:  events.Stream,
+				Op:      int(*kClause.AllOp),
+				Kind:    kClause.Kind,
+				AfterID: afterID,
 			})
 		}
 		for _, subsetClause := range kClause.Subsets {
@@ -116,9 +167,10 @@ func buildQueryOps(events *ipc.DomainStream, in *ipc.QueryIn) ([]storage2.Operat
 	}
 	if eachClause := in.OnEach; eachClause != nil {
 		op := &storage2.AllStreamEvents{
-			Domain: events.Domain,
-			Stream: events.Stream,
-			Op:     int(eachClause.Op),
+			Domain:  events.Domain,
+			Stream:  events.Stream,
+			Op:      int(eachClause.Op),
+			AfterID: afterID,
 		}
 		ops = append(ops, op)
 	}
@@ -279,10 +331,11 @@ func (g *grpcQuery) runWatchQuery(ctx context.Context, out ipc.Query_QueryServer
 
 // grpcPort exports a Command and Query grpc with the specified configuration
 type grpcPort struct {
-	config  *GRPCListenerConfig
-	oldCore *storage
-	core    *storage2.Repository
-	bus     *bus
+	config    *GRPCListenerConfig
+	oldCore   *storage
+	core      *storage2.Repository
+	bus       *bus
+	positions *storage2.PositionStore
 }
 
 func (g *grpcPort) Serve(ctx context.Context) error {
@@ -305,6 +358,9 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 		oldCore: g.oldCore,
 		core:    g.core,
 		bus:     g.bus,
+	})
+	ipc.RegisterConsumerPositionServer(service, &grpcConsumerPosition{
+		store: g.positions,
 	})
 
 	tcpListener, err := net.Listen("tcp", g.config.Address)

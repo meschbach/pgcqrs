@@ -14,6 +14,9 @@ type queryInFilter struct {
 }
 
 func (q *queryInFilter) filter(ctx context.Context, e Envelope, send func(int64, Envelope, json.RawMessage)) error {
+	if q.query.AfterID != nil && e.ID <= *q.query.AfterID {
+		return nil
+	}
 	for _, onKind := range q.query.OnKind {
 		if onKind.Kind != e.Kind {
 			continue

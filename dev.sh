@@ -60,11 +60,26 @@ function cmd_system_tests() {
 
 function run_system_tests() {
   (cd $self_dir
+
+  #
+  # Example drift detection - verifies examples work with current codebase
+  #
+  echo
+  echo "Running examples to detect API drift"
+  echo
   export PGCQRS_SERVICE_URL_HTTP=http://localhost:26000
   export PGCQRS_SERVICE_URL_GRPC=localhost:26001
   export OTEL_EXPORTER_OTLP_ENDPOINT="http://localhost:16001"
   export OTEL_EXPORTER=grpc
   ./run-examples.sh
+
+  #
+  # Transport verification - runs systest with memory, HTTP, gRPC
+  #
+  echo
+  echo "Running integration tests across all transports"
+  echo
+  ./integration-tests.sh docked
   )
 }
 

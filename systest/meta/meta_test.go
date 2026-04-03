@@ -38,11 +38,6 @@ func TestMeta(t *testing.T) {
 				require.NoError(t, err)
 				assert.Contains(t, domains, domain)
 			})
-
-			t.Run("Then is listable under the application", func(t *testing.T) {
-				t.Parallel()
-				t.Skip("TODO")
-			})
 		})
 	})
 }

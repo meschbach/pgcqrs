@@ -6,7 +6,6 @@ import (
 	"testing"
 
 	"github.com/go-faker/faker/v4"
-	"github.com/meschbach/pgcqrs/internal/junk"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/require"
 )
@@ -49,7 +48,7 @@ func TestGRPCPositionOperations(t *testing.T) {
 
 		consumers, err := harness.system.Transport.ListConsumers(ctx, harness.appName, harness.streamName)
 		require.NoError(t, err)
-		require.ElementsMatch(t, []string{"consumer-a", "consumer-b"}, consumers)
+		require.ElementsMatch(t, []string{"test-consumer", "consumer-a", "consumer-b"}, consumers)
 
 		// Test DeletePosition
 		err = harness.system.Transport.DeletePosition(ctx, harness.appName, harness.streamName, "consumer-a")
@@ -90,21 +89,24 @@ func setupPositionHarnessT(t *testing.T) *positionHarness {
 		transport = v1.TransportTypeHTTP
 	}
 
+	appName := appBase + "-" + faker.Name()
+	streamName := faker.Name()
+
 	config := v1.Config{
 		TransportType: transport,
 		ServiceURL:    url,
 	}
 	system, err := config.SystemFromConfig()
-	junk.Must(err)
-	_, err = system.Stream(ctx, appBase+"-"+faker.Name(), faker.Name())
-	junk.Must(err)
+	require.NoError(t, err)
+	_, err = system.Stream(ctx, appName, streamName)
+	require.NoError(t, err)
 
 	out := &positionHarness{
 		ctx:        ctx,
 		done:       done,
 		system:     system,
-		appName:    appBase + "-" + faker.Name(),
-		streamName: faker.Name(),
+		appName:    appName,
+		streamName: streamName,
 	}
 	t.Cleanup(done)
 	return out

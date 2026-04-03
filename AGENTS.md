@@ -47,10 +47,23 @@ go build ./cmd/pgcqrs
 
 # Or use docker-up.sh for quicker setup on ports 9000/9001
 ./docker-up.sh
-
-# Run all examples
-./run-examples.sh
 ```
+
+### Quality Gates
+
+This project has two quality gates that should be run locally to match CI:
+
+1. **Example drift detection** - verifies examples compile and work with the current codebase
+   ```bash
+   ./run-examples.sh
+   ```
+
+2. **Transport verification** - runs systest suite with memory, HTTP, and gRPC transports
+   ```bash
+   ./integration-tests.sh
+   ```
+
+Both are automatically run via `./dev.sh up` when the system tests stage executes.
 
 ### Database Migrations
 

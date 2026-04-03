@@ -7,7 +7,7 @@ import (
 
 	"github.com/go-faker/faker/v4"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
-	query2 "github.com/meschbach/pgcqrs/pkg/v1/query2"
+	"github.com/meschbach/pgcqrs/pkg/v1/query2"
 	"github.com/stretchr/testify/require"
 )
 

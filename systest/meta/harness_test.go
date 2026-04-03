@@ -18,22 +18,8 @@ type harness struct {
 	system *v1.System
 }
 
-func buildSoftTimeoutContext(base context.Context) (context.Context, func(), error) {
-	spec, has := os.LookupEnv("SOFT_TIMEOUT")
-	if !has {
-		return base, func() {}, nil
-	}
-	length, err := time.ParseDuration(spec)
-	if err != nil {
-		return nil, nil, err
-	}
-	ctx, cancel := context.WithTimeout(base, length)
-	return ctx, cancel, nil
-}
-
 func setupHarnessT(t *testing.T) (*harness, context.Context, *v1.System) {
-	ctx, done, ctxErr := buildSoftTimeoutContext(t.Context())
-	require.NoError(t, ctxErr)
+	ctx := t.Context()
 	transport, hasTransport := os.LookupEnv("PGCQRS_TEST_TRANSPORT")
 	url, hasURL := os.LookupEnv("PGCQRS_TEST_URL")
 
@@ -53,8 +39,10 @@ func setupHarnessT(t *testing.T) (*harness, context.Context, *v1.System) {
 	junk.Must(err)
 
 	h := &harness{
-		ctx:    ctx,
-		done:   done,
+		ctx: ctx,
+		done: func() {
+
+		},
 		system: system,
 	}
 
@@ -63,7 +51,11 @@ func setupHarnessT(t *testing.T) (*harness, context.Context, *v1.System) {
 	require.NoError(t, err, "observability error")
 
 	t.Cleanup(func() {
-		require.NoError(t, component.ShutdownGracefully(t.Context()))
+		//nolint
+		cleanup, done := context.WithTimeout(context.Background(), 500*time.Second)
+		defer done()
+
+		require.NoError(t, component.ShutdownGracefully(cleanup))
 		h.done()
 	})
 	return h, h.ctx, h.system

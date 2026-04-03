@@ -153,11 +153,12 @@ func buildQueryOps(events *ipc.DomainStream, in *ipc.QueryIn) ([]storage2.Operat
 		}
 		for _, subsetClause := range kClause.Subsets {
 			ops = append(ops, &storage2.MatchSubset{
-				App:    events.Domain,
-				Stream: events.Stream,
-				Op:     int(subsetClause.Op),
-				Kind:   kClause.Kind,
-				Subset: json.RawMessage(subsetClause.Match),
+				App:     events.Domain,
+				Stream:  events.Stream,
+				Op:      int(subsetClause.Op),
+				Kind:    kClause.Kind,
+				Subset:  json.RawMessage(subsetClause.Match),
+				AfterID: afterID,
 			})
 		}
 	}

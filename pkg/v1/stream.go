@@ -86,7 +86,7 @@ func (s *Stream) EnvelopesFor(ctx context.Context, ids ...int64) ([]Envelope, er
 	}
 
 	out := fx.Filter[Envelope](envelopes, func(e Envelope) bool {
-		return slices.Contains(ids, e.ID)
+		return slices.Contains(ids, e.ID) //nolint:govet
 	})
 	return out, nil
 }

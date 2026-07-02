@@ -80,3 +80,8 @@ nodeSelector: {}
 tolerations: []
 
 affinity: {}
+
+extraInitContainers: []
+  # - name: init-db
+  #   image: busybox:1.28
+  #   command: ['sh', '-c', 'echo "do something before migrator"']

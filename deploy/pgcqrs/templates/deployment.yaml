@@ -28,6 +28,9 @@ spec:
       securityContext:
         {{- toYaml .Values.podSecurityContext | nindent 8 }}
       initContainers:
+        {{- with .Values.extraInitContainers }}
+        {{- toYaml . | nindent 8 }}
+        {{- end }}
         - name: migrator
           image: "{{ .Values.image.repository }}-migrator:{{ .Values.image.tag | default .Chart.AppVersion }}"
           {{- with .Values.env }}

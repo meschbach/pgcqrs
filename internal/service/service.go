@@ -19,10 +19,10 @@ import (
 )
 
 type service struct {
-	storage    *storage
-	repository *storage2.Repository
-	bus        *bus
-	positions  *storage2.PositionStore
+	storage       *storage
+	repository    *storage2.Repository
+	bus           *bus
+	consumerStore *storage2.ConsumerStore
 }
 
 // Result represents a generic operation result.
@@ -108,7 +108,7 @@ func (s *service) getPosition() func(http.ResponseWriter, *http.Request) {
 		stream := vars["stream"]
 		consumer := vars["consumer"]
 
-		eventID, found, err := s.positions.GetPosition(request.Context(), domain, stream, consumer)
+		eventID, found, err := s.consumerStore.GetPosition(request.Context(), domain, stream, consumer)
 		if err != nil {
 			restful.InternalError(writer, request, err)
 			return
@@ -142,7 +142,7 @@ func (s *service) setPosition() func(http.ResponseWriter, *http.Request) {
 			return
 		}
 
-		result, err := s.positions.SetPosition(request.Context(), domain, stream, consumer, req.EventID)
+		result, err := s.consumerStore.SetPosition(request.Context(), domain, stream, consumer, req.EventID)
 		if err != nil {
 			restful.InternalError(writer, request, err)
 			return
@@ -168,7 +168,7 @@ func (s *service) deletePosition() func(http.ResponseWriter, *http.Request) {
 		stream := vars["stream"]
 		consumer := vars["consumer"]
 
-		err := s.positions.DeletePosition(request.Context(), domain, stream, consumer)
+		err := s.consumerStore.DeletePosition(request.Context(), domain, stream, consumer)
 		if err != nil {
 			restful.InternalError(writer, request, err)
 			return
@@ -188,7 +188,7 @@ func (s *service) listConsumers() func(http.ResponseWriter, *http.Request) {
 		domain := vars["domain"]
 		stream := vars["stream"]
 
-		consumers, err := s.positions.ListConsumers(request.Context(), domain, stream)
+		consumers, err := s.consumerStore.ListConsumers(request.Context(), domain, stream)
 		if err != nil {
 			restful.InternalError(writer, request, err)
 			return
@@ -262,16 +262,16 @@ func Serve(ctx context.Context, cfg *Config) {
 		fmt.Printf("Connected to database: user=%s host=%s database=%s\n", connConfig.User, connConfig.Host, connConfig.Database)
 		s.storage = &storage{pg: pool}
 		s.repository = storage2.RepositoryWithPool(pool)
-		s.positions = storage2.NewPositionStore(pool)
+		s.consumerStore = storage2.NewConsumerStore(pool)
 
 		app := suture.NewSimple("pgcqrs")
 		if cfg.GRPCListener != nil {
 			app.Add(&grpcPort{
-				config:    cfg.GRPCListener,
-				oldCore:   s.storage,
-				core:      s.repository,
-				bus:       s.bus,
-				positions: storage2.NewPositionStore(pool),
+				config:        cfg.GRPCListener,
+				oldCore:       s.storage,
+				core:          s.repository,
+				bus:           s.bus,
+				consumerStore: s.consumerStore,
 			})
 		}
 		appDone = app.ServeBackground(ctx)

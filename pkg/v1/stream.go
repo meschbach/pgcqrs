@@ -18,13 +18,13 @@ type Stream struct {
 }
 
 // Submit sends an event to the stream.
-func (s *Stream) Submit(ctx context.Context, kind string, event interface{}) (*Submitted, error) {
-	return s.system.Transport.Submit(ctx, s.domain, s.stream, kind, event)
+func (s *Stream) Submit(ctx context.Context, kind string, event interface{}, opts ...Option) (*Submitted, error) {
+	return s.system.Transport.Submit(ctx, s.domain, s.stream, kind, event, opts...)
 }
 
 // MustSubmit sends an event to the stream and panics on error.
-func (s *Stream) MustSubmit(ctx context.Context, kind string, event interface{}) *Submitted {
-	out, err := s.Submit(ctx, kind, event)
+func (s *Stream) MustSubmit(ctx context.Context, kind string, event interface{}, opts ...Option) *Submitted {
+	out, err := s.Submit(ctx, kind, event, opts...)
 	junk.Must(err)
 	return out
 }

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp"
@@ -105,7 +106,7 @@ type SubmitReply struct {
 }
 
 // Submit sends an event to the remote service.
-func (c *HTTPTransportLayer) Submit(parent context.Context, app, stream, kind string, event interface{}) (*Submitted, error) {
+func (c *HTTPTransportLayer) Submit(parent context.Context, app, stream, kind string, event interface{}, _ ...Option) (*Submitted, error) {
 	ctx, span := tracer.Start(parent, "pg-cqrs.v1:submit")
 	defer span.End()
 
@@ -278,6 +279,31 @@ func (c *HTTPTransportLayer) DeletePosition(parent context.Context, domain, stre
 // Watch sets up a watch on the remote service.
 func (c *HTTPTransportLayer) Watch(_ context.Context, _ *ipc.QueryIn) (WatchInternal, error) {
 	return nil, errors.New("not implemented")
+}
+
+// TryAcquire is not implemented for HTTP transport.
+func (c *HTTPTransportLayer) TryAcquire(_ context.Context, _, _, _, _ string, _ time.Duration) (*LockResult, error) {
+	return nil, errors.New("not implemented")
+}
+
+// Release is not implemented for HTTP transport.
+func (c *HTTPTransportLayer) Release(_ context.Context, _, _, _, _ string) error {
+	return errors.New("not implemented")
+}
+
+// GetLock is not implemented for HTTP transport.
+func (c *HTTPTransportLayer) GetLock(_ context.Context, _, _, _ string) (*LockState, error) {
+	return nil, errors.New("not implemented")
+}
+
+// ListLocks is not implemented for HTTP transport.
+func (c *HTTPTransportLayer) ListLocks(_ context.Context, _, _ string) ([]LockState, error) {
+	return nil, errors.New("not implemented")
+}
+
+// HeartbeatWithPosition is not implemented for HTTP transport.
+func (c *HTTPTransportLayer) HeartbeatWithPosition(_ context.Context, _, _, _, _ string, _ int64) error {
+	return errors.New("not implemented")
 }
 
 // Meta retrieves metadata from the remote service.

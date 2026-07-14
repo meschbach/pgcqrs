@@ -3,6 +3,7 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"time"
 
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 )
@@ -16,7 +17,7 @@ type SetPositionResult struct {
 // Transport defines the interface for different communication mechanisms (e.g. memory, HTTP, gRPC).
 type Transport interface {
 	EnsureStream(ctx context.Context, domain string, stream string) error
-	Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error)
+	Submit(ctx context.Context, domain, stream, kind string, event interface{}, opts ...Option) (*Submitted, error)
 	GetEvent(ctx context.Context, domain, stream string, id int64, event interface{}) error
 	AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error)
 
@@ -32,6 +33,12 @@ type Transport interface {
 	GetPosition(ctx context.Context, domain, stream, consumer string) (int64, bool, error)
 	ListConsumers(ctx context.Context, domain, stream string) ([]string, error)
 	DeletePosition(ctx context.Context, domain, stream, consumer string) error
+
+	TryAcquire(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*LockResult, error)
+	Release(ctx context.Context, domain, stream, consumer, holder string) error
+	GetLock(ctx context.Context, domain, stream, consumer string) (*LockState, error)
+	ListLocks(ctx context.Context, domain, stream string) ([]LockState, error)
+	HeartbeatWithPosition(ctx context.Context, domain, stream, consumer, holder string, position int64) error
 }
 
 // StreamTransport defines methods for basic stream operations.

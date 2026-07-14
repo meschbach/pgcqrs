@@ -1,0 +1,14 @@
+title: Consumer Locks
+description: Add persistent consumer locks with heartbeat and position tracking to pgcqrs core
+status: proposed
+schema: spec-driven
+artifacts:
+  proposal:
+    status: done
+    updated: "2026-07-11"
+  design:
+    status: done
+    updated: "2026-07-11"
+  tasks:
+    status: done
+    updated: "2026-07-11"

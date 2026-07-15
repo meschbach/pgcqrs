@@ -8,6 +8,9 @@ import (
 
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/meschbach/pgcqrs/pkg/v1/local"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/codes"
+	"go.opentelemetry.io/otel/trace"
 	"golang.org/x/sync/errgroup"
 	"google.golang.org/protobuf/types/known/timestamppb"
 )
@@ -25,6 +28,17 @@ type memory struct {
 	input     chan memoryOp
 	domains   map[string]*memoryDomain
 	positions map[string]map[string]int64
+	locks     map[string]*memoryLock
+	now       func() time.Time
+}
+
+type memoryLock struct {
+	holder         string
+	acquiredAt     time.Time
+	heartbeatAt    time.Time
+	ttl            time.Duration
+	guaranteeUntil time.Time
+	heldUntil      time.Time
 }
 
 type memoryDomain struct {
@@ -72,6 +86,8 @@ func NewMemoryTransport() Transport {
 		input:     make(chan memoryOp, 32),
 		domains:   make(map[string]*memoryDomain),
 		positions: make(map[string]map[string]int64),
+		locks:     make(map[string]*memoryLock),
+		now:       time.Now,
 	}
 	go m.runService()
 	return m
@@ -104,14 +120,62 @@ func (m *memory) EnsureStream(ctx context.Context, domain, stream string) error 
 	}})
 }
 
-func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error) {
+func (m *memory) lockKey(domain, stream, consumer string) string {
+	return domain + "/" + stream + "/" + consumer
+}
+
+func (m *memory) checkLock(domain, stream string, lock *Lock) error {
+	if lock == nil {
+		return nil
+	}
+	key := m.lockKey(domain, stream, lock.Consumer)
+	lockState, exists := m.locks[key]
+	if !exists {
+		return &LockNotHeldError{
+			Consumer: lock.Consumer,
+			Holder:   lock.Holder,
+			Domain:   domain,
+			Stream:   stream,
+		}
+	}
+	if m.now().After(lockState.heldUntil) {
+		return &LockNotHeldError{
+			Consumer: lock.Consumer,
+			Holder:   lock.Holder,
+			Domain:   domain,
+			Stream:   stream,
+		}
+	}
+	if lockState.holder != lock.Holder {
+		return &LockNotHeldError{
+			Consumer: lock.Consumer,
+			Holder:   lock.Holder,
+			Domain:   domain,
+			Stream:   stream,
+		}
+	}
+	return nil
+}
+
+func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event interface{}, opts ...Option) (*Submitted, error) {
+	cfg := &submitConfig{}
+	for _, opt := range opts {
+		opt.apply(cfg)
+	}
+
 	bytes, err := json.Marshal(event)
 	if err != nil {
 		return nil, err
 	}
-	//
+
 	var out int64
+	var lockErr error
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		lockErr = m.checkLock(domain, stream, cfg.lock)
+		if lockErr != nil {
+			return
+		}
+
 		stream := m.domains[domain].streams[stream]
 
 		out = int64(len(stream.packets))
@@ -125,7 +189,11 @@ func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event 
 			onAdd(out)
 		}
 	}}); err != nil {
-		return nil, nil
+		return nil, err
+	}
+
+	if lockErr != nil {
+		return nil, lockErr
 	}
 
 	return &Submitted{
@@ -315,7 +383,6 @@ func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, 
 		return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
 			stream := m.domains[query.Events.Domain].streams[query.Events.Stream]
 			stream.onAddPacket = append(stream.onAddPacket, func(id int64) {
-				fmt.Printf("onAddPacket: %d\n", id)
 				pendingEvents <- id
 			})
 		}})
@@ -367,7 +434,6 @@ func (m *memoryWatch) enqueue(op int64, envelope Envelope, message json.RawMessa
 	}
 	m.lastEvent = envelope.ID
 
-	fmt.Printf("enqueuing: (op: %d, event: %d)\n", op, envelope.ID)
 	whenTime, err := envelope.InternalizeWhen()
 	if err != nil {
 		panic(err)
@@ -432,7 +498,6 @@ func (m *memoryWatch) processInitEvents(ctx context.Context) error {
 func (m *memoryWatch) waitForEvents(ctx context.Context) (*ipc.QueryOut, error) {
 	for {
 		if e := m.pop(); e != nil {
-			fmt.Printf("\tPopped: %v\n", e)
 			return e, nil
 		}
 
@@ -448,21 +513,16 @@ func (m *memoryWatch) waitForEvents(ctx context.Context) (*ipc.QueryOut, error) 
 }
 
 func (m *memoryWatch) processNewEvent(ctx context.Context, id int64) error {
-	fmt.Printf("\tGot event: %d\n", id)
 	envelopes, err := m.core.AllEnvelopes(ctx, m.domain, m.stream)
 	if err != nil {
-		fmt.Printf("\tget all failed: %d\n", id)
 		return err
 	}
 	envelope := envelopes[id]
-	if err = m.filter.filter(ctx, envelope, func(op int64, envelope Envelope, message json.RawMessage) {
-		fmt.Printf("\tmatch received: %d\n", id)
+	if filterErr := m.filter.filter(ctx, envelope, func(op int64, envelope Envelope, message json.RawMessage) {
 		m.enqueue(op, envelope, message)
-	}); err != nil {
-		fmt.Printf("\tfilter failed: %d\n", id)
-		return err
+	}); filterErr != nil {
+		return filterErr
 	}
-	fmt.Printf("\tpost-filter: (count: %d)\n", len(m.pending))
 	return nil
 }
 
@@ -535,4 +595,281 @@ func (m *memory) DeletePosition(ctx context.Context, domain, stream, consumer st
 			}
 		}
 	}})
+}
+
+func (m *memory) cleanExpiredLocks(prefix, excludeKey string, now time.Time) {
+	deleted := 0
+	for k, l := range m.locks {
+		if k == excludeKey {
+			continue
+		}
+		if deleted >= 128 {
+			break
+		}
+		if len(k) > len(prefix) && k[:len(prefix)] == prefix && now.After(l.heldUntil) {
+			delete(m.locks, k)
+			deleted++
+		}
+	}
+}
+
+func (m *memory) TryAcquire(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (out *LockResult, retErr error) {
+	ctx, span := tracer.Start(ctx, "memory.TryAcquire", trace.WithAttributes(
+		attribute.String("consumer-lock.domain", domain),
+		attribute.String("consumer-lock.stream", stream),
+		attribute.String("consumer-lock.consumer", consumer),
+		attribute.String("consumer-lock.holder", holder),
+		attribute.Float64("consumer-lock.ttl", ttl.Seconds()),
+	))
+	defer func() {
+		if retErr != nil {
+			span.SetStatus(codes.Error, retErr.Error())
+		}
+		if out != nil {
+			span.SetAttributes(attribute.Bool("consumer-lock.acquired", out.Acquired))
+		}
+		span.End()
+	}()
+
+	if ttl < LockMinimumTTL {
+		return nil, &TTLTooLowError{Provided: ttl, Minimum: LockMinimumTTL}
+	}
+
+	var result *LockResult
+	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		key := m.lockKey(domain, stream, consumer)
+		now := m.now()
+
+		if existing, ok := m.locks[key]; ok && !now.After(existing.heldUntil) && existing.holder != holder {
+			result = &LockResult{
+				Acquired:       false,
+				HeldBy:         existing.holder,
+				GuaranteeUntil: existing.guaranteeUntil,
+				HeldUntil:      existing.heldUntil,
+			}
+			return
+		}
+
+		prefix := domain + "/" + stream + "/"
+		m.cleanExpiredLocks(prefix, key, now)
+
+		guaranteeUntil := now.Add(time.Duration(float64(ttl) * DefaultGuaranteeFraction))
+		heldUntil := now.Add(ttl)
+
+		m.locks[key] = &memoryLock{
+			holder:         holder,
+			acquiredAt:     now,
+			heartbeatAt:    now,
+			ttl:            ttl,
+			guaranteeUntil: guaranteeUntil,
+			heldUntil:      heldUntil,
+		}
+
+		result = &LockResult{
+			Acquired:       true,
+			HeldBy:         holder,
+			GuaranteeUntil: guaranteeUntil,
+			HeldUntil:      heldUntil,
+		}
+	}}); err != nil {
+		return nil, err
+	}
+	return result, nil
+}
+
+func (m *memory) Release(ctx context.Context, domain, stream, consumer, holder string) (retErr error) {
+	ctx, span := tracer.Start(ctx, "memory.Release", trace.WithAttributes(
+		attribute.String("consumer-lock.domain", domain),
+		attribute.String("consumer-lock.stream", stream),
+		attribute.String("consumer-lock.consumer", consumer),
+		attribute.String("consumer-lock.holder", holder),
+	))
+	defer func() {
+		if retErr != nil {
+			span.SetStatus(codes.Error, retErr.Error())
+		}
+		span.End()
+	}()
+
+	var releaseErr error
+	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		key := m.lockKey(domain, stream, consumer)
+		existing, ok := m.locks[key]
+		if !ok {
+			return
+		}
+		if m.now().After(existing.heldUntil) {
+			return
+		}
+		if existing.holder != holder {
+			releaseErr = &LockNotHeldError{
+				Consumer: consumer,
+				Holder:   holder,
+				Domain:   domain,
+				Stream:   stream,
+			}
+			return
+		}
+		delete(m.locks, key)
+	}}); err != nil {
+		return err
+	}
+	return releaseErr
+}
+
+func (m *memory) GetLock(ctx context.Context, domain, stream, consumer string) (out *LockState, found bool, retErr error) {
+	ctx, span := tracer.Start(ctx, "memory.GetLock", trace.WithAttributes(
+		attribute.String("consumer-lock.domain", domain),
+		attribute.String("consumer-lock.stream", stream),
+		attribute.String("consumer-lock.consumer", consumer),
+	))
+	defer func() {
+		if retErr != nil {
+			span.SetStatus(codes.Error, retErr.Error())
+		}
+		span.SetAttributes(attribute.Bool("consumer-lock.found", out != nil))
+		span.End()
+	}()
+
+	var state *LockState
+	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		key := m.lockKey(domain, stream, consumer)
+		existing, ok := m.locks[key]
+		if !ok {
+			return
+		}
+		if m.now().After(existing.heldUntil) {
+			return
+		}
+		state = &LockState{
+			Consumer:       consumer,
+			Domain:         domain,
+			Stream:         stream,
+			Holder:         existing.holder,
+			AcquiredAt:     existing.acquiredAt,
+			HeartbeatAt:    existing.heartbeatAt,
+			TTL:            existing.ttl,
+			GuaranteeUntil: existing.guaranteeUntil,
+			HeldUntil:      existing.heldUntil,
+		}
+	}}); err != nil {
+		return nil, false, err
+	}
+	if state == nil {
+		return nil, false, nil
+	}
+	return state, true, nil
+}
+
+func (m *memory) ListLocks(ctx context.Context, domain, stream string) (out []LockState, retErr error) {
+	ctx, span := tracer.Start(ctx, "memory.ListLocks", trace.WithAttributes(
+		attribute.String("consumer-lock.domain", domain),
+		attribute.String("consumer-lock.stream", stream),
+	))
+	defer func() {
+		if retErr != nil {
+			span.SetStatus(codes.Error, retErr.Error())
+		}
+		span.SetAttributes(attribute.Int("consumer-lock.lock_count", len(out)))
+		span.End()
+	}()
+
+	var states []LockState
+	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		prefix := domain + "/" + stream + "/"
+		now := m.now()
+		for k, l := range m.locks {
+			if len(k) <= len(prefix) || k[:len(prefix)] != prefix {
+				continue
+			}
+			if now.After(l.heldUntil) {
+				continue
+			}
+			consumer := k[len(prefix):]
+			states = append(states, LockState{
+				Consumer:       consumer,
+				Domain:         domain,
+				Stream:         stream,
+				Holder:         l.holder,
+				AcquiredAt:     l.acquiredAt,
+				HeartbeatAt:    l.heartbeatAt,
+				TTL:            l.ttl,
+				GuaranteeUntil: l.guaranteeUntil,
+				HeldUntil:      l.heldUntil,
+			})
+		}
+	}}); err != nil {
+		return nil, err
+	}
+	out = states
+	return out, nil
+}
+
+func (m *memory) HeartbeatWithPosition(ctx context.Context, domain, stream, consumer, holder string, position int64) (retErr error) {
+	ctx, span := tracer.Start(ctx, "memory.HeartbeatWithPosition", trace.WithAttributes(
+		attribute.String("consumer-lock.domain", domain),
+		attribute.String("consumer-lock.stream", stream),
+		attribute.String("consumer-lock.consumer", consumer),
+		attribute.String("consumer-lock.holder", holder),
+		attribute.Int64("consumer-lock.position", position),
+	))
+	defer func() {
+		if retErr != nil {
+			span.SetStatus(codes.Error, retErr.Error())
+		}
+		span.End()
+	}()
+
+	var hbErr error
+	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		hbErr = m.heartbeatLockAndPosition(domain, stream, consumer, holder, position)
+	}}); err != nil {
+		return err
+	}
+	return hbErr
+}
+
+func (m *memory) heartbeatLockAndPosition(domain, stream, consumer, holder string, position int64) error {
+	key := m.lockKey(domain, stream, consumer)
+	now := m.now()
+
+	existing, ok := m.locks[key]
+	if !ok || now.After(existing.heldUntil) {
+		return &LockExpiredError{
+			Consumer: consumer,
+			Domain:   domain,
+			Stream:   stream,
+		}
+	}
+	if existing.holder != holder {
+		return &LockNotHeldError{
+			Consumer: consumer,
+			Holder:   holder,
+			Domain:   domain,
+			Stream:   stream,
+		}
+	}
+
+	posKey := m.positionKey(domain, stream, consumer)
+	if streamPositions, ok := m.positions[posKey]; ok {
+		if currentID, exists := streamPositions[consumer]; exists && position < currentID {
+			return &HeartbeatConflictError{
+				TargetVersion:  position,
+				CurrentVersion: currentID,
+			}
+		}
+	}
+
+	guaranteeUntil := now.Add(time.Duration(float64(existing.ttl) * DefaultGuaranteeFraction))
+	heldUntil := now.Add(existing.ttl)
+
+	existing.heartbeatAt = now
+	existing.guaranteeUntil = guaranteeUntil
+	existing.heldUntil = heldUntil
+
+	if _, ok := m.positions[posKey]; !ok {
+		m.positions[posKey] = make(map[string]int64)
+	}
+	m.positions[posKey][consumer] = position
+	return nil
 }

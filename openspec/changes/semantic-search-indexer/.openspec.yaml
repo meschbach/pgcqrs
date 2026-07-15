@@ -1,0 +1,14 @@
+title: Semantic Search Indexer
+description: External indexer framework for embedding-based semantic search over pgcqrs streams
+status: proposed
+schema: spec-driven
+artifacts:
+  proposal:
+    status: done
+    updated: "2026-07-11"
+  design:
+    status: done
+    updated: "2026-07-11"
+  tasks:
+    status: done
+    updated: "2026-07-11"

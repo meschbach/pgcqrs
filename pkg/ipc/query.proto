@@ -43,6 +43,20 @@ service ConsumerPosition {
   rpc DeletePosition(DeletePositionIn) returns (DeletePositionOut);
 }
 
+/**
+ * ConsumerLock is a service for managing exclusive consumer locks on streams.
+ */
+service ConsumerLock {
+  // TryAcquire attempts to acquire an exclusive lock for a consumer on a stream.
+  rpc TryAcquire(TryAcquireIn) returns (TryAcquireOut);
+  // Release explicitly releases a lock held by the specified holder.
+  rpc Release(ReleaseIn) returns (ReleaseOut);
+  // KeepAlive is a bidirectional stream for heartbeat-based lock renewal.
+  rpc KeepAlive(stream KeepAliveClientMessage) returns (stream KeepAliveServerMessage);
+  // ListLocks returns all active locks for a domain/stream pair.
+  rpc ListLocks(ListLocksIn) returns (ListLocksOut);
+}
+
 message CreateStreamIn {
   DomainStream target = 1;
 }
@@ -82,6 +96,8 @@ message SubmitIn {
   bytes body = 3;
   // expectations are not currently used.
   optional Consistency expectations = 4;
+  // lock optionally asserts that the caller holds the specified lock.
+  optional Lock lock = 5;
 }
 
 message SubmitOut {
@@ -301,5 +317,104 @@ message DeletePositionIn {
 }
 
 message DeletePositionOut {
+  bool ok = 1;
+}
+
+// Lock identifies a consumer lock by consumer name and holder identity.
+message Lock {
+  string consumer = 1;
+  string holder = 2;
+}
+
+// LockStatusReason describes the outcome of a lock operation.
+enum LockStatusReason {
+  UNSPECIFIED = 0;
+  RENEWED = 1;
+  EXPIRED = 2;
+  STOLEN = 3;
+  CONFLICT = 4;
+}
+
+message TryAcquireIn {
+  DomainStream events = 1;
+  string consumer = 2;
+  string holder = 3;
+  int32 ttl_seconds = 4;
+}
+
+message TryAcquireOut {
+  bool acquired = 1;
+  string held_by = 2;
+  google.protobuf.Timestamp guarantee_until = 3;
+  google.protobuf.Timestamp held_until = 4;
+}
+
+message ReleaseIn {
+  DomainStream events = 1;
+  string consumer = 2;
+  string holder = 3;
+}
+
+message ReleaseOut {
+  bool ok = 1;
+}
+
+message ListLocksIn {
+  DomainStream events = 1;
+}
+
+message ListLocksOut {
+  repeated LockState locks = 1;
+}
+
+message LockState {
+  string consumer = 1;
+  string domain = 2;
+  string stream = 3;
+  string holder = 4;
+  google.protobuf.Timestamp acquired_at = 5;
+  google.protobuf.Timestamp heartbeat_at = 6;
+  int32 ttl = 7;
+  google.protobuf.Timestamp guarantee_until = 8;
+  google.protobuf.Timestamp held_until = 9;
+}
+
+// KeepAliveClientMessage is sent from client to server in the KeepAlive bidirectional stream.
+message KeepAliveClientMessage {
+  oneof message {
+    KeepAliveHeartbeat heartbeat = 1;
+    KeepAliveReleaseRequest release_request = 2;
+  }
+}
+
+message KeepAliveHeartbeat {
+  DomainStream events = 1;
+  string consumer = 2;
+  string holder = 3;
+  int64 position = 4;
+}
+
+message KeepAliveReleaseRequest {}
+
+// KeepAliveServerMessage is sent from server to client in the KeepAlive bidirectional stream.
+message KeepAliveServerMessage {
+  oneof message {
+    KeepAliveLockStatus lock_status = 1;
+    KeepAliveReleaseAck release_ack = 2;
+  }
+}
+
+message KeepAliveLockStatus {
+  bool locked = 1;
+  LockStatusReason reason = 2;
+  google.protobuf.Timestamp guarantee_until = 3;
+  google.protobuf.Timestamp held_until = 4;
+  // target_version is populated only when reason = CONFLICT
+  optional int64 target_version = 5;
+  // current_version is populated only when reason = CONFLICT
+  optional int64 current_version = 6;
+}
+
+message KeepAliveReleaseAck {
   bool ok = 1;
 }

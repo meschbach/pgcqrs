@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"go.opentelemetry.io/contrib/instrumentation/google.golang.org/grpc/otelgrpc"
@@ -29,6 +30,7 @@ type GrpcAdapter struct {
 	commands  ipc.CommandClient
 	queries   ipc.QueryClient
 	positions ipc.ConsumerPositionClient
+	locks     ipc.ConsumerLockClient
 }
 
 // NewGRPCTransport creates a new GrpcAdapter.
@@ -66,10 +68,12 @@ func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	commands := ipc.NewCommandClient(conn)
 	queries := ipc.NewQueryClient(conn)
 	positions := ipc.NewConsumerPositionClient(conn)
+	locks := ipc.NewConsumerLockClient(conn)
 	return &GrpcAdapter{
 		commands,
 		queries,
 		positions,
+		locks,
 	}, nil
 }
 
@@ -86,19 +90,34 @@ func (g *GrpcAdapter) EnsureStream(ctx context.Context, domain, stream string) e
 }
 
 // Submit sends an event via gRPC.
-func (g *GrpcAdapter) Submit(ctx context.Context, domain, stream, kind string, event interface{}) (*Submitted, error) {
+func (g *GrpcAdapter) Submit(ctx context.Context, domain, stream, kind string, event interface{}, opts ...Option) (*Submitted, error) {
 	body, err := json.Marshal(event)
 	if err != nil {
 		return nil, err
 	}
-	result, err := g.commands.Submit(ctx, &ipc.SubmitIn{
+
+	cfg := &submitConfig{}
+	for _, opt := range opts {
+		opt.apply(cfg)
+	}
+
+	submitIn := &ipc.SubmitIn{
 		Events: &ipc.DomainStream{
 			Domain: domain,
 			Stream: stream,
 		},
 		Kind: kind,
 		Body: body,
-	})
+	}
+
+	if cfg.lock != nil {
+		submitIn.Lock = &ipc.Lock{
+			Consumer: cfg.lock.Consumer,
+			Holder:   cfg.lock.Holder,
+		}
+	}
+
+	result, err := g.commands.Submit(ctx, submitIn)
 	if err != nil {
 		return nil, err
 	}
@@ -477,6 +496,273 @@ func (g *GrpcAdapter) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInter
 		return nil, err
 	}
 	return &grpcWatchPump{wire: stream}, nil
+}
+
+// TryAcquire attempts to acquire a consumer lock via gRPC.
+func (g *GrpcAdapter) TryAcquire(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*LockResult, error) {
+	resp, err := g.locks.TryAcquire(ctx, &ipc.TryAcquireIn{
+		Events:     &ipc.DomainStream{Domain: domain, Stream: stream},
+		Consumer:   consumer,
+		Holder:     holder,
+		TtlSeconds: int32(ttl.Seconds()),
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := &LockResult{
+		Acquired: resp.Acquired,
+		HeldBy:   resp.HeldBy,
+	}
+	if resp.GuaranteeUntil != nil {
+		result.GuaranteeUntil = resp.GuaranteeUntil.AsTime()
+	}
+	if resp.HeldUntil != nil {
+		result.HeldUntil = resp.HeldUntil.AsTime()
+	}
+	return result, nil
+}
+
+// Release releases a consumer lock via gRPC.
+func (g *GrpcAdapter) Release(ctx context.Context, domain, stream, consumer, holder string) error {
+	_, err := g.locks.Release(ctx, &ipc.ReleaseIn{
+		Events:   &ipc.DomainStream{Domain: domain, Stream: stream},
+		Consumer: consumer,
+		Holder:   holder,
+	})
+	return err
+}
+
+// GetLock retrieves the state of a consumer lock via gRPC.
+// Uses ListLocks and filters by consumer since the proto has no dedicated GetLock RPC.
+func (g *GrpcAdapter) GetLock(ctx context.Context, domain, stream, consumer string) (*LockState, bool, error) {
+	locks, err := g.ListLocks(ctx, domain, stream)
+	if err != nil {
+		return nil, false, err
+	}
+	for i := range locks {
+		if locks[i].Consumer == consumer {
+			return &locks[i], true, nil
+		}
+	}
+	return nil, false, nil
+}
+
+// ListLocks lists all active locks for a domain/stream pair via gRPC.
+func (g *GrpcAdapter) ListLocks(ctx context.Context, domain, stream string) ([]LockState, error) {
+	resp, err := g.locks.ListLocks(ctx, &ipc.ListLocksIn{
+		Events: &ipc.DomainStream{Domain: domain, Stream: stream},
+	})
+	if err != nil {
+		return nil, err
+	}
+	result := make([]LockState, 0, len(resp.Locks))
+	for _, ls := range resp.Locks {
+		state := LockState{
+			Consumer: ls.Consumer,
+			Domain:   ls.Domain,
+			Stream:   ls.Stream,
+			Holder:   ls.Holder,
+			TTL:      time.Duration(ls.Ttl) * time.Second,
+		}
+		if ls.AcquiredAt != nil {
+			state.AcquiredAt = ls.AcquiredAt.AsTime()
+		}
+		if ls.HeartbeatAt != nil {
+			state.HeartbeatAt = ls.HeartbeatAt.AsTime()
+		}
+		if ls.GuaranteeUntil != nil {
+			state.GuaranteeUntil = ls.GuaranteeUntil.AsTime()
+		}
+		if ls.HeldUntil != nil {
+			state.HeldUntil = ls.HeldUntil.AsTime()
+		}
+		result = append(result, state)
+	}
+	return result, nil
+}
+
+// HeartbeatWithPosition sends a heartbeat with the consumer's position via gRPC.
+// This is a unary wrapper that opens a KeepAlive stream, sends one heartbeat, and closes.
+func (g *GrpcAdapter) HeartbeatWithPosition(ctx context.Context, domain, stream, consumer, holder string, position int64) error {
+	kaStream, err := g.locks.KeepAlive(ctx)
+	if err != nil {
+		return err
+	}
+	err = kaStream.Send(&ipc.KeepAliveClientMessage{
+		Message: &ipc.KeepAliveClientMessage_Heartbeat{
+			Heartbeat: &ipc.KeepAliveHeartbeat{
+				Events:   &ipc.DomainStream{Domain: domain, Stream: stream},
+				Consumer: consumer,
+				Holder:   holder,
+				Position: position,
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	resp, err := kaStream.Recv()
+	if err != nil {
+		return err
+	}
+	return g.handleKeepAliveResponse(resp, consumer, domain, stream, holder)
+}
+
+func (g *GrpcAdapter) handleKeepAliveResponse(resp *ipc.KeepAliveServerMessage, consumer, domain, stream, holder string) error {
+	lockStatus := resp.GetLockStatus()
+	if lockStatus == nil {
+		return nil
+	}
+	if lockStatus.Reason == ipc.LockStatusReason_CONFLICT {
+		return g.newHeartbeatConflictError(lockStatus)
+	}
+	if lockStatus.Reason == ipc.LockStatusReason_EXPIRED {
+		return &LockExpiredError{Consumer: consumer, Domain: domain, Stream: stream}
+	}
+	if lockStatus.Reason == ipc.LockStatusReason_STOLEN {
+		return &LockNotHeldError{Consumer: consumer, Domain: domain, Stream: stream, Holder: holder}
+	}
+	return nil
+}
+
+func (g *GrpcAdapter) newHeartbeatConflictError(lockStatus *ipc.KeepAliveLockStatus) error {
+	var targetVersion, currentVersion int64
+	if lockStatus.TargetVersion != nil {
+		targetVersion = *lockStatus.TargetVersion
+	}
+	if lockStatus.CurrentVersion != nil {
+		currentVersion = *lockStatus.CurrentVersion
+	}
+	return &HeartbeatConflictError{
+		TargetVersion:  targetVersion,
+		CurrentVersion: currentVersion,
+	}
+}
+
+// KeepAlive wraps a bidirectional gRPC KeepAlive stream for synchronous
+// heartbeat-based lock renewal. The client owns the goroutine and drives
+// heartbeat timing. Use the GuaranteeUntil time from the TryAcquire response
+// or previous Heartbeat response to schedule the next heartbeat — send it
+// before GuaranteeUntil to maintain the lock.
+type KeepAlive struct {
+	stream   grpc.BidiStreamingClient[ipc.KeepAliveClientMessage, ipc.KeepAliveServerMessage]
+	domain   string
+	streamN  string
+	consumer string
+	holder   string
+}
+
+// NewKeepAlive opens a bidirectional KeepAlive stream and returns a client-side
+// wrapper for synchronous heartbeat and release operations.
+func (g *GrpcAdapter) NewKeepAlive(ctx context.Context, domain, stream, consumer, holder string) (*KeepAlive, error) {
+	s, err := g.locks.KeepAlive(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return &KeepAlive{
+		stream:   s,
+		domain:   domain,
+		streamN:  stream,
+		consumer: consumer,
+		holder:   holder,
+	}, nil
+}
+
+// Heartbeat sends a heartbeat with the consumer's current position over the
+// bidirectional stream and waits for the server's lock status response.
+// Returns nil on RENEWED, or an error if the reason is CONFLICT, EXPIRED, or STOLEN.
+func (k *KeepAlive) Heartbeat(ctx context.Context, position int64) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	err := k.stream.Send(&ipc.KeepAliveClientMessage{
+		Message: &ipc.KeepAliveClientMessage_Heartbeat{
+			Heartbeat: &ipc.KeepAliveHeartbeat{
+				Events:   &ipc.DomainStream{Domain: k.domain, Stream: k.streamN},
+				Consumer: k.consumer,
+				Holder:   k.holder,
+				Position: position,
+			},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	resp, err := k.stream.Recv()
+	if err != nil {
+		return err
+	}
+	return k.processLockStatus(resp)
+}
+
+func (k *KeepAlive) processLockStatus(resp *ipc.KeepAliveServerMessage) error {
+	lockStatus := resp.GetLockStatus()
+	if lockStatus == nil {
+		return nil
+	}
+	switch lockStatus.Reason {
+	case ipc.LockStatusReason_UNSPECIFIED, ipc.LockStatusReason_RENEWED:
+		return nil
+	case ipc.LockStatusReason_CONFLICT:
+		var targetVersion, currentVersion int64
+		if lockStatus.TargetVersion != nil {
+			targetVersion = *lockStatus.TargetVersion
+		}
+		if lockStatus.CurrentVersion != nil {
+			currentVersion = *lockStatus.CurrentVersion
+		}
+		return &HeartbeatConflictError{
+			TargetVersion:  targetVersion,
+			CurrentVersion: currentVersion,
+		}
+	case ipc.LockStatusReason_EXPIRED:
+		return &LockExpiredError{
+			Consumer: k.consumer,
+			Domain:   k.domain,
+			Stream:   k.streamN,
+		}
+	case ipc.LockStatusReason_STOLEN:
+		return &LockNotHeldError{
+			Consumer: k.consumer,
+			Holder:   k.holder,
+			Domain:   k.domain,
+			Stream:   k.streamN,
+		}
+	}
+	return nil
+}
+
+// Release sends a release request over the bidirectional stream and waits for
+// the server's release acknowledgement. Returns nil on success, or an error if
+// the ack indicates failure.
+func (k *KeepAlive) Release(ctx context.Context) error {
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	default:
+	}
+	err := k.stream.Send(&ipc.KeepAliveClientMessage{
+		Message: &ipc.KeepAliveClientMessage_ReleaseRequest{
+			ReleaseRequest: &ipc.KeepAliveReleaseRequest{},
+		},
+	})
+	if err != nil {
+		return err
+	}
+	resp, err := k.stream.Recv()
+	if err != nil {
+		return err
+	}
+	ack := resp.GetReleaseAck()
+	if ack == nil {
+		return nil
+	}
+	if !ack.Ok {
+		return fmt.Errorf("keepalive release rejected")
+	}
+	return nil
 }
 
 type grpcWatchPump struct {

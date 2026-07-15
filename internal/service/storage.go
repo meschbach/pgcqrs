@@ -22,6 +22,12 @@ type storage struct {
 	pg *pgxpool.Pool
 }
 
+// queryExecer is the common interface satisfied by both *pgxpool.Pool and *pgx.Tx.
+type queryExecer interface {
+	Query(ctx context.Context, sql string, args ...any) (pgx.Rows, error)
+	QueryRow(ctx context.Context, sql string, args ...any) pgx.Row
+}
+
 type pgMeta struct {
 	ID   int64
 	When pgtype.Timestamptz
@@ -69,6 +75,10 @@ func (s *storage) replayMeta(parent context.Context, app, stream string, onEvent
 }
 
 func (s *storage) unsafeStore(parent context.Context, app, stream, kind string, body []byte) (int64, error) {
+	return s.unsafeStoreWith(parent, s.pg, app, stream, kind, body)
+}
+
+func (s *storage) unsafeStoreWith(parent context.Context, q queryExecer, app, stream, kind string, body []byte) (int64, error) {
 	ctx, span := tracer.Start(parent, "unsafeStore",
 		trace.WithAttributes(attribute.String("pg-cqrs.app", app),
 			attribute.String("pg-cqrs.stream", stream)))
@@ -76,7 +86,7 @@ func (s *storage) unsafeStore(parent context.Context, app, stream, kind string, 
 
 	// Kind upsert
 	// TODO: Find a better way to upsert in single round trip
-	r, err := s.query(ctx, `INSERT INTO events_kind(kind) VALUES ($1) ON CONFLICT DO NOTHING`, kind)
+	r, err := s.queryExec(ctx, q, `INSERT INTO events_kind(kind) VALUES ($1) ON CONFLICT DO NOTHING`, kind)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "query error")
@@ -89,7 +99,7 @@ INSERT INTO events(kind_id, event, stream_id)
 SELECT (SELECT k.id FROM events_kind k WHERE k.kind = $1), $2, (SELECT s.id FROM events_stream as s WHERE s.app = $3 AND s.stream = $4)
 RETURNING id
 `
-	results, err := s.query(ctx, sql, kind, body, app, stream)
+	results, err := s.queryExec(ctx, q, sql, kind, body, app, stream)
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "query error")
@@ -109,6 +119,18 @@ RETURNING id
 		return -1, errors.New("programmatic error: query has more than one row")
 	}
 	return out, nil
+}
+
+func (s *storage) queryExec(parent context.Context, q queryExecer, sql string, args ...interface{}) (pgx.Rows, error) {
+	ctx, span := tracer.Start(parent, sql, trace.WithSpanKind(trace.SpanKindClient))
+	defer span.End()
+
+	results, err := q.Query(ctx, sql, args...)
+	if err != nil {
+		span.RecordError(err)
+		span.SetStatus(codes.Error, err.Error())
+	}
+	return results, err
 }
 
 type noSuchIDError struct {

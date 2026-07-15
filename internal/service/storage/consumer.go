@@ -190,14 +190,13 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 		    ttl = EXCLUDED.ttl,
 		    guarantee_until = EXCLUDED.guarantee_until,
 		    held_until = EXCLUDED.held_until
-		WHERE consumer_locks.held_until < NOW()
 		RETURNING (
 			SELECT cl.holder
 			FROM consumer_locks cl
 			WHERE cl.stream_id = consumer_locks.stream_id
 			  AND cl.consumer_id = consumer_locks.consumer_id
 			  AND cl.held_until > NOW()
-		)`, domain, consumerID, holder, ttl, guaranteeUntil, heldUntil)
+		)`, domain, consumerID, holder, ttl, guaranteeUntil, heldUntil, stream)
 
 	var conflictHolder *string
 	err = row.Scan(&conflictHolder)
@@ -239,12 +238,16 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 // Errors are logged as span events but do not fail the caller.
 func (s *ConsumerStore) cleanExpiredLocks(ctx context.Context, domain, stream string, excludeConsumerID int64) {
 	tag, cleanupErr := s.pg.Exec(ctx, `
-		DELETE FROM consumer_locks cl
-		WHERE cl.stream_id IN (
-			SELECT es.id FROM events_stream es WHERE es.app = $1 AND es.stream = $2
-		) AND cl.held_until < NOW()
-		AND cl.consumer_id != $3
-		LIMIT 128`, domain, stream, excludeConsumerID)
+		DELETE FROM consumer_locks
+		WHERE ctid IN (
+			SELECT cl.ctid
+			FROM consumer_locks cl
+			JOIN events_stream es ON cl.stream_id = es.id
+			WHERE es.app = $1 AND es.stream = $2
+			  AND cl.held_until < NOW()
+			  AND cl.consumer_id != $3
+			LIMIT 128
+		)`, domain, stream, excludeConsumerID)
 	if cleanupErr != nil {
 		trace.SpanFromContext(ctx).AddEvent("cleanup.expired_locks_failed", trace.WithAttributes(
 			attribute.String("consumer-lock.error", cleanupErr.Error()),

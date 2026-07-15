@@ -283,27 +283,27 @@ func (c *HTTPTransportLayer) Watch(_ context.Context, _ *ipc.QueryIn) (WatchInte
 
 // TryAcquire is not implemented for HTTP transport.
 func (c *HTTPTransportLayer) TryAcquire(_ context.Context, _, _, _, _ string, _ time.Duration) (*LockResult, error) {
-	return nil, errors.New("not implemented")
+	return nil, errors.New("consumer locks require gRPC transport; HTTP transport does not support TryAcquire")
 }
 
 // Release is not implemented for HTTP transport.
 func (c *HTTPTransportLayer) Release(_ context.Context, _, _, _, _ string) error {
-	return errors.New("not implemented")
+	return errors.New("consumer locks require gRPC transport; HTTP transport does not support Release")
 }
 
 // GetLock is not implemented for HTTP transport.
-func (c *HTTPTransportLayer) GetLock(_ context.Context, _, _, _ string) (*LockState, error) {
-	return nil, errors.New("not implemented")
+func (c *HTTPTransportLayer) GetLock(_ context.Context, _, _, _ string) (*LockState, bool, error) {
+	return nil, false, errors.New("consumer locks require gRPC transport; HTTP transport does not support GetLock")
 }
 
 // ListLocks is not implemented for HTTP transport.
 func (c *HTTPTransportLayer) ListLocks(_ context.Context, _, _ string) ([]LockState, error) {
-	return nil, errors.New("not implemented")
+	return nil, errors.New("consumer locks require gRPC transport; HTTP transport does not support ListLocks")
 }
 
 // HeartbeatWithPosition is not implemented for HTTP transport.
 func (c *HTTPTransportLayer) HeartbeatWithPosition(_ context.Context, _, _, _, _ string, _ int64) error {
-	return errors.New("not implemented")
+	return errors.New("consumer locks require gRPC transport; HTTP transport does not support HeartbeatWithPosition")
 }
 
 // Meta retrieves metadata from the remote service.

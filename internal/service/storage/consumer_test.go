@@ -241,8 +241,9 @@ func TestConsumerStore_Release(t *testing.T) {
 		err = store.Release(ctx, domain, stream, consumer, holder)
 		require.NoError(t, err)
 
-		state, err := store.GetLock(ctx, domain, stream, consumer)
+		state, found, err := store.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		assert.False(t, found)
 		assert.Nil(t, state)
 	})
 
@@ -267,10 +268,15 @@ func TestConsumerStore_Release(t *testing.T) {
 
 		otherHolder := faker.Word()
 		err = store.Release(ctx, domain, stream, consumer, otherHolder)
-		require.NoError(t, err)
+		require.Error(t, err)
+		var lockNotHeld *v1.LockNotHeldError
+		require.ErrorAs(t, err, &lockNotHeld)
+		assert.Equal(t, consumer, lockNotHeld.Consumer)
+		assert.Equal(t, otherHolder, lockNotHeld.Holder)
 
-		state, err := store.GetLock(ctx, domain, stream, consumer)
+		state, found, err := store.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		require.True(t, found)
 		require.NotNil(t, state)
 		assert.Equal(t, holder, state.Holder)
 	})
@@ -294,8 +300,9 @@ func TestConsumerStore_GetLock(t *testing.T) {
 		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		state, err := store.GetLock(ctx, domain, stream, consumer)
+		state, found, err := store.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		require.True(t, found)
 		require.NotNil(t, state)
 		assert.Equal(t, consumer, state.Consumer)
 		assert.Equal(t, domain, state.Domain)
@@ -309,8 +316,9 @@ func TestConsumerStore_GetLock(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		state, err := store.GetLock(ctx, domain, stream, consumer)
+		state, found, err := store.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		assert.False(t, found)
 		assert.Nil(t, state)
 	})
 
@@ -335,8 +343,9 @@ func TestConsumerStore_GetLock(t *testing.T) {
 			streamID, consumerID, holder)
 		require.NoError(t, err)
 
-		state, err := store.GetLock(ctx, domain, stream, consumer)
+		state, found, err := store.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		assert.False(t, found)
 		assert.Nil(t, state)
 	})
 }
@@ -374,6 +383,35 @@ func TestConsumerStore_ListLocks(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, locks)
 	})
+
+	t.Run("ExcludesExpiredLocks", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		// Insert an expired lock directly
+		consumerID1, err := store.resolveConsumerName(ctx, "consumer-expired")
+		require.NoError(t, err)
+		var streamID int64
+		err = pool.QueryRow(ctx, `SELECT id FROM events_stream WHERE app = $1 AND stream = $2`, domain, stream).Scan(&streamID)
+		require.NoError(t, err)
+		_, err = pool.Exec(ctx, `
+			INSERT INTO consumer_locks (stream_id, consumer_id, holder, ttl, guarantee_until, held_until)
+			VALUES ($1, $2, $3, '30s', NOW() - '10s'::interval, NOW() - '1s'::interval)`,
+			streamID, consumerID1, "holder-expired")
+		require.NoError(t, err)
+
+		// Acquire an active lock
+		_, err = store.TryAcquire(ctx, domain, stream, "consumer-active", "holder-active", 30*time.Second)
+		require.NoError(t, err)
+
+		// ListLocks should only return the active lock
+		locks, err := store.ListLocks(ctx, domain, stream)
+		require.NoError(t, err)
+		require.Len(t, locks, 1)
+		assert.Equal(t, "consumer-active", locks[0].Consumer)
+	})
 }
 
 func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
@@ -394,6 +432,11 @@ func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
 		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
+		before, foundBefore, err := store.GetLock(ctx, domain, stream, consumer)
+		require.NoError(t, err)
+		require.True(t, foundBefore)
+		require.NotNil(t, before)
+
 		err = store.HeartbeatWithPosition(ctx, domain, stream, consumer, holder, 10)
 		require.NoError(t, err)
 
@@ -401,6 +444,13 @@ func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, found)
 		assert.Equal(t, int64(10), pos)
+
+		after, foundAfter, err := store.GetLock(ctx, domain, stream, consumer)
+		require.NoError(t, err)
+		require.True(t, foundAfter)
+		require.NotNil(t, after)
+		assert.True(t, after.HeldUntil.After(before.HeldUntil), "held_until should be extended")
+		assert.True(t, after.HeartbeatAt.After(before.HeartbeatAt), "heartbeat_at should be updated")
 	})
 
 	t.Run("StalePositionReturnsConflict", func(t *testing.T) {
@@ -423,7 +473,7 @@ func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
 		assert.Equal(t, int64(100), conflict.CurrentVersion)
 	})
 
-	t.Run("ExpiredLockReturnsError", func(t *testing.T) {
+	t.Run("LockNotAcquiredReturnsNotFoundError", func(t *testing.T) {
 		t.Parallel()
 		pool := WithDatabaseConnection(t)
 		store := NewConsumerStore(pool)
@@ -431,7 +481,7 @@ func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
 
 		err := store.HeartbeatWithPosition(ctx, domain, stream, consumer, holder, 10)
 		require.Error(t, err)
-		var lockNotFound *LockNotFoundError
+		var lockNotFound *v1.LockNotFoundError
 		require.ErrorAs(t, err, &lockNotFound)
 	})
 
@@ -460,6 +510,24 @@ func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
 		require.Error(t, err)
 		var lockExpired *v1.LockExpiredError
 		require.ErrorAs(t, err, &lockExpired)
+	})
+
+	t.Run("StolenLockReturnsLockNotHeldError", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		// Acquire lock with holder1
+		_, err := store.TryAcquire(ctx, domain, stream, consumer, "holder1", 30*time.Second)
+		require.NoError(t, err)
+
+		// Try to heartbeat with holder2 (different from holder1)
+		err = store.HeartbeatWithPosition(ctx, domain, stream, consumer, "holder2", 10)
+		require.Error(t, err)
+		var lockNotHeld *v1.LockNotHeldError
+		require.ErrorAs(t, err, &lockNotHeld)
+		assert.Equal(t, "holder2", lockNotHeld.Holder)
 	})
 }
 
@@ -517,5 +585,157 @@ func TestConsumerStore_SetPosition_BackwardGuard(t *testing.T) {
 		require.NotNil(t, result.PreviousEventID)
 		assert.Equal(t, int64(200), *result.PreviousEventID)
 		assert.Equal(t, int64(200), result.CurrentEventID)
+	})
+}
+
+func TestConsumerStore_PositionDualRead(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	domain := faker.Word()
+	stream := faker.Word()
+
+	t.Run("GetPositionReadsPreMigrationRow", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		var streamID int64
+		err := pool.QueryRow(ctx, `SELECT id FROM events_stream WHERE app = $1 AND stream = $2`, domain, stream).Scan(&streamID)
+		require.NoError(t, err)
+
+		_, err = pool.Exec(ctx, `
+			INSERT INTO consumer_positions (stream_id, consumer, event_id, updated_at)
+			VALUES ($1, $2, 100, NOW())`, streamID, "legacy-consumer")
+		require.NoError(t, err)
+
+		pos, found, err := store.GetPosition(ctx, domain, stream, "legacy-consumer")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, int64(100), pos)
+	})
+
+	t.Run("GetPositionReadsPostMigrationRow", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		_, err := store.SetPosition(ctx, domain, stream, "modern-consumer", 200)
+		require.NoError(t, err)
+
+		pos, found, err := store.GetPosition(ctx, domain, stream, "modern-consumer")
+		require.NoError(t, err)
+		assert.True(t, found)
+		assert.Equal(t, int64(200), pos)
+	})
+
+	t.Run("GetPositionReturnsNotFoundForUnknownConsumer", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		pos, found, err := store.GetPosition(ctx, domain, stream, "nonexistent")
+		require.NoError(t, err)
+		assert.False(t, found)
+		assert.Equal(t, int64(0), pos)
+	})
+
+	t.Run("ListConsumersMergesBothPaths", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		var streamID int64
+		err := pool.QueryRow(ctx, `SELECT id FROM events_stream WHERE app = $1 AND stream = $2`, domain, stream).Scan(&streamID)
+		require.NoError(t, err)
+
+		_, err = pool.Exec(ctx, `
+			INSERT INTO consumer_positions (stream_id, consumer, event_id, updated_at)
+			VALUES ($1, $2, 10, NOW())`, streamID, "legacy-only")
+		require.NoError(t, err)
+
+		_, err = store.SetPosition(ctx, domain, stream, "modern-only", 20)
+		require.NoError(t, err)
+
+		consumers, err := store.ListConsumers(ctx, domain, stream)
+		require.NoError(t, err)
+		assert.ElementsMatch(t, []string{"legacy-only", "modern-only"}, consumers)
+	})
+
+	t.Run("DeletePositionWorksWithPreMigrationRow", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		var streamID int64
+		err := pool.QueryRow(ctx, `SELECT id FROM events_stream WHERE app = $1 AND stream = $2`, domain, stream).Scan(&streamID)
+		require.NoError(t, err)
+
+		_, err = pool.Exec(ctx, `
+			INSERT INTO consumer_positions (stream_id, consumer, event_id, updated_at)
+			VALUES ($1, $2, 10, NOW())`, streamID, "to-delete")
+		require.NoError(t, err)
+
+		err = store.DeletePosition(ctx, domain, stream, "to-delete")
+		require.NoError(t, err)
+
+		_, found, err := store.GetPosition(ctx, domain, stream, "to-delete")
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
+
+	t.Run("DeletePositionWorksWithPostMigrationRow", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		_, err := store.SetPosition(ctx, domain, stream, "to-delete-modern", 10)
+		require.NoError(t, err)
+
+		err = store.DeletePosition(ctx, domain, stream, "to-delete-modern")
+		require.NoError(t, err)
+
+		_, found, err := store.GetPosition(ctx, domain, stream, "to-delete-modern")
+		require.NoError(t, err)
+		assert.False(t, found)
+	})
+
+	t.Run("SetPositionPromotesLegacyRowToDualWrite", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		var streamID int64
+		err := pool.QueryRow(ctx, `SELECT id FROM events_stream WHERE app = $1 AND stream = $2`, domain, stream).Scan(&streamID)
+		require.NoError(t, err)
+
+		_, err = pool.Exec(ctx, `
+			INSERT INTO consumer_positions (stream_id, consumer, event_id, updated_at)
+			VALUES ($1, $2, 10, NOW())`, streamID, "promoted")
+		require.NoError(t, err)
+
+		var consumerIDBefore *int64
+		err = pool.QueryRow(ctx, `
+			SELECT consumer_id FROM consumer_positions
+			WHERE stream_id = $1 AND consumer = $2`, streamID, "promoted").Scan(&consumerIDBefore)
+		require.NoError(t, err)
+		assert.Nil(t, consumerIDBefore, "pre-migration row should have NULL consumer_id")
+
+		_, err = store.SetPosition(ctx, domain, stream, "promoted", 20)
+		require.NoError(t, err)
+
+		var consumerIDAfter *int64
+		err = pool.QueryRow(ctx, `
+			SELECT consumer_id FROM consumer_positions
+			WHERE stream_id = $1 AND consumer = $2`, streamID, "promoted").Scan(&consumerIDAfter)
+		require.NoError(t, err)
+		assert.NotNil(t, consumerIDAfter, "after SetPosition, consumer_id should be populated")
 	})
 }

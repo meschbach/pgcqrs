@@ -22,6 +22,10 @@ ALTER TABLE consumer_positions
     ADD COLUMN IF NOT EXISTS consumer_id BIGINT REFERENCES consumer_names(id);
 
 -- Backfill consumer_id from existing consumer TEXT column (idempotent)
+INSERT INTO consumer_names (name)
+SELECT DISTINCT consumer FROM consumer_positions
+ON CONFLICT (name) DO NOTHING;
+
 UPDATE consumer_positions cp
 SET consumer_id = cn.id
 FROM consumer_names cn

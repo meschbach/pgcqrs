@@ -534,17 +534,17 @@ func (g *GrpcAdapter) Release(ctx context.Context, domain, stream, consumer, hol
 
 // GetLock retrieves the state of a consumer lock via gRPC.
 // Uses ListLocks and filters by consumer since the proto has no dedicated GetLock RPC.
-func (g *GrpcAdapter) GetLock(ctx context.Context, domain, stream, consumer string) (*LockState, error) {
+func (g *GrpcAdapter) GetLock(ctx context.Context, domain, stream, consumer string) (*LockState, bool, error) {
 	locks, err := g.ListLocks(ctx, domain, stream)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 	for i := range locks {
 		if locks[i].Consumer == consumer {
-			return &locks[i], nil
+			return &locks[i], true, nil
 		}
 	}
-	return nil, nil
+	return nil, false, nil
 }
 
 // ListLocks lists all active locks for a domain/stream pair via gRPC.
@@ -641,7 +641,9 @@ func (g *GrpcAdapter) newHeartbeatConflictError(lockStatus *ipc.KeepAliveLockSta
 
 // KeepAlive wraps a bidirectional gRPC KeepAlive stream for synchronous
 // heartbeat-based lock renewal. The client owns the goroutine and drives
-// heartbeat timing via context.WithTimeout.
+// heartbeat timing. Use the GuaranteeUntil time from the TryAcquire response
+// or previous Heartbeat response to schedule the next heartbeat — send it
+// before GuaranteeUntil to maintain the lock.
 type KeepAlive struct {
 	stream   grpc.BidiStreamingClient[ipc.KeepAliveClientMessage, ipc.KeepAliveServerMessage]
 	domain   string

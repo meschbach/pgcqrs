@@ -249,9 +249,11 @@ Migrating `consumer_positions` to use `consumer_id` FK is done in two phases to 
 - Create `consumer_names` table
 - Create `consumer_locks` with `consumer_id FK` directly
 - Add nullable `consumer_id BIGINT REFERENCES consumer_names(id)` column to `consumer_positions`
+- Seed `consumer_names` from existing data (`INSERT INTO consumer_names(name) SELECT DISTINCT consumer FROM consumer_positions ON CONFLICT DO NOTHING`) before backfilling
 - Backfill `consumer_positions.consumer_id` from existing `consumer` TEXT column via a single idempotent UPDATE with `WHERE consumer_id IS NULL` (safe for typical table sizes — one row per consumer per domain/stream)
 - Keep old `consumer` TEXT column (both coexist during rolling upgrade)
 - All writes populate **both** `consumer` TEXT and `consumer_id` FK columns; reads use `consumer_id` (via JOIN)
+- GetPosition, ListConsumers, and DeletePosition use LEFT JOIN on `consumer_names` to prefer the FK path and fall back to the TEXT column for pre-migration rows where `consumer_id IS NULL`
 
 **Phase 2 (future change — `migrations/future/`):**
 - Drop `consumer_positions.consumer` TEXT column
@@ -530,6 +532,7 @@ Labels on all metrics: `consumer-lock.domain`, `consumer-lock.stream`, `consumer
 | `consumer_lock.stream.closed_without_release` | KeepAlive streams closed without Release message |
 | `consumer_lock.assertion.checks` | Lock assertion checks on queries/submits |
 | `consumer_lock.assertion.rejections` | Requests rejected (lock not held) |
+| `consumer_lock.cleanup.deleted` | Expired lock rows removed during TryAcquire cleanup |
 
 **Gauges:**
 

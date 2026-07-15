@@ -36,7 +36,7 @@ type Transport interface {
 
 	TryAcquire(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*LockResult, error)
 	Release(ctx context.Context, domain, stream, consumer, holder string) error
-	GetLock(ctx context.Context, domain, stream, consumer string) (*LockState, error)
+	GetLock(ctx context.Context, domain, stream, consumer string) (*LockState, bool, error)
 	ListLocks(ctx context.Context, domain, stream string) ([]LockState, error)
 	HeartbeatWithPosition(ctx context.Context, domain, stream, consumer, holder string, position int64) error
 }

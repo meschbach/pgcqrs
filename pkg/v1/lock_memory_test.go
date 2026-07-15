@@ -177,8 +177,9 @@ func TestMemoryRelease(t *testing.T) {
 		err = m.Release(ctx, domain, stream, consumer, holder)
 		require.NoError(t, err)
 
-		state, err := m.GetLock(ctx, domain, stream, consumer)
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		assert.False(t, found)
 		assert.Nil(t, state)
 	})
 
@@ -192,7 +193,7 @@ func TestMemoryRelease(t *testing.T) {
 		require.NoError(t, err)
 	})
 
-	t.Run("NonHolderReleaseNoEffect", func(t *testing.T) {
+	t.Run("NonHolderReleaseReturnsError", func(t *testing.T) {
 		t.Parallel()
 		m := newTestMemory(t)
 		ctx := t.Context()
@@ -203,10 +204,15 @@ func TestMemoryRelease(t *testing.T) {
 
 		otherHolder := faker.Word()
 		err = m.Release(ctx, domain, stream, consumer, otherHolder)
-		require.NoError(t, err)
+		require.Error(t, err)
+		var lockNotHeld *LockNotHeldError
+		require.ErrorAs(t, err, &lockNotHeld)
+		assert.Equal(t, consumer, lockNotHeld.Consumer)
+		assert.Equal(t, otherHolder, lockNotHeld.Holder)
 
-		state, err := m.GetLock(ctx, domain, stream, consumer)
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		require.True(t, found)
 		require.NotNil(t, state)
 		assert.Equal(t, holder, state.Holder)
 	})
@@ -229,8 +235,9 @@ func TestMemoryGetLock(t *testing.T) {
 		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		state, err := m.GetLock(ctx, domain, stream, consumer)
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		require.True(t, found)
 		require.NotNil(t, state)
 		assert.Equal(t, consumer, state.Consumer)
 		assert.Equal(t, domain, state.Domain)
@@ -244,8 +251,9 @@ func TestMemoryGetLock(t *testing.T) {
 		ctx := t.Context()
 		require.NoError(t, m.EnsureStream(ctx, domain, stream))
 
-		state, err := m.GetLock(ctx, domain, stream, consumer)
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		assert.False(t, found)
 		assert.Nil(t, state)
 	})
 }
@@ -282,6 +290,32 @@ func TestMemoryListLocks(t *testing.T) {
 		require.NoError(t, err)
 		assert.Empty(t, locks)
 	})
+
+	t.Run("ExcludesExpiredLocks", func(t *testing.T) {
+		t.Parallel()
+		frozen := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		m := newTestMemory(t)
+		m.now = func() time.Time { return frozen }
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		// Acquire a lock that will expire
+		_, err := m.TryAcquire(ctx, domain, stream, "consumer-expired", "holder-expired", 10*time.Second)
+		require.NoError(t, err)
+
+		// Acquire an active lock with longer TTL
+		_, err = m.TryAcquire(ctx, domain, stream, "consumer-active", "holder-active", 30*time.Second)
+		require.NoError(t, err)
+
+		// Advance time past the first lock's TTL but before the second expires
+		m.now = func() time.Time { return frozen.Add(15 * time.Second) }
+
+		// ListLocks should only return the active lock
+		locks, err := m.ListLocks(ctx, domain, stream)
+		require.NoError(t, err)
+		require.Len(t, locks, 1)
+		assert.Equal(t, "consumer-active", locks[0].Consumer)
+	})
 }
 
 func TestMemoryHeartbeatWithPosition(t *testing.T) {
@@ -301,6 +335,11 @@ func TestMemoryHeartbeatWithPosition(t *testing.T) {
 		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
+		before, foundBefore, err := m.GetLock(ctx, domain, stream, consumer)
+		require.NoError(t, err)
+		require.True(t, foundBefore)
+		require.NotNil(t, before)
+
 		err = m.HeartbeatWithPosition(ctx, domain, stream, consumer, holder, 10)
 		require.NoError(t, err)
 
@@ -308,6 +347,13 @@ func TestMemoryHeartbeatWithPosition(t *testing.T) {
 		require.NoError(t, err)
 		assert.True(t, found)
 		assert.Equal(t, int64(10), pos)
+
+		after, foundAfter, err := m.GetLock(ctx, domain, stream, consumer)
+		require.NoError(t, err)
+		require.True(t, foundAfter)
+		require.NotNil(t, after)
+		assert.True(t, after.HeldUntil.After(before.HeldUntil), "held_until should be extended")
+		assert.True(t, after.HeartbeatAt.After(before.HeartbeatAt), "heartbeat_at should be updated")
 	})
 
 	t.Run("StalePositionNoUpdate", func(t *testing.T) {
@@ -348,6 +394,24 @@ func TestMemoryHeartbeatWithPosition(t *testing.T) {
 		require.NoError(t, err)
 		assert.False(t, found)
 		assert.Equal(t, int64(0), pos)
+	})
+
+	t.Run("StolenLockReturnsLockNotHeldError", func(t *testing.T) {
+		t.Parallel()
+		m := newTestMemory(t)
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		// Acquire lock with holder1
+		_, err := m.TryAcquire(ctx, domain, stream, consumer, "holder1", 30*time.Second)
+		require.NoError(t, err)
+
+		// Try to heartbeat with holder2 (different from holder1)
+		err = m.HeartbeatWithPosition(ctx, domain, stream, consumer, "holder2", 10)
+		require.Error(t, err)
+		var lockNotHeld *LockNotHeldError
+		require.ErrorAs(t, err, &lockNotHeld)
+		assert.Equal(t, "holder2", lockNotHeld.Holder)
 	})
 }
 
@@ -459,8 +523,9 @@ func TestMemoryClockInjection(t *testing.T) {
 
 		m.now = func() time.Time { return frozen.Add(11 * time.Second) }
 
-		state, err := m.GetLock(ctx, domain, stream, consumer)
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
 		require.NoError(t, err)
+		assert.False(t, found)
 		assert.Nil(t, state)
 	})
 

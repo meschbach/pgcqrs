@@ -17,7 +17,8 @@
   - Create `consumer_names` table (id BIGSERIAL PK, name TEXT NOT NULL UNIQUE)
   - Create `consumer_locks` table with `consumer_id BIGINT REFERENCES consumer_names(id)`, `stream_id BIGINT REFERENCES events_stream(id) ON DELETE CASCADE`, `holder TEXT`, and TTL columns, PRIMARY KEY (stream_id, consumer_id)
   - Add nullable `consumer_id BIGINT REFERENCES consumer_names(id)` column to `consumer_positions`
-  - Backfill `consumer_positions.consumer_id` from existing `consumer` TEXT column via `consumer_names` lookup (single idempotent UPDATE with `WHERE consumer_id IS NULL`)
+  - Seed `consumer_names` from existing data (`INSERT INTO consumer_names(name) SELECT DISTINCT consumer FROM consumer_positions ON CONFLICT DO NOTHING`)
+  - Backfill `consumer_positions.consumer_id` via a single idempotent UPDATE with `WHERE consumer_id IS NULL`
   - Keep existing `consumer` TEXT column (both coexist for zero-downtime upgrade)
 - [x] 2.2 Create Phase 2 migration files in `migrations/future/`:
   - `000001_cleanup_consumer_columns.up.sql` — drop `consumer_positions.consumer` TEXT column, add NOT NULL constraint to `consumer_id`
@@ -33,7 +34,7 @@
 - [x] 3.5 Implement `GetLock(ctx, domain, stream, consumer)` — resolve consumer name, SELECT, returns `LockState`; expired rows (`held_until < NOW()`) are treated as non-existent (return not-found)
 - [x] 3.6 Implement `HeartbeatWithPosition(ctx, domain, stream, consumer, holder, position)` — resolve consumer name, single `pgx.Tx` that atomically UPDATEs `consumer_locks` (heartbeat_at, held_until, guarantee_until) only if `held_until > NOW()`, and INSERT/UPDATEs `consumer_positions` with backward-position guard; if position is stale, roll back entire transaction and return conflict error with target_version and current_version
 - [x] 3.7 Implement `ListLocks(ctx, domain, stream)` — SELECT all active locks (`held_until > NOW()`) joined with `consumer_names` for a domain/stream pair, returns `[]LockState`
-- [x] 3.8 Migrate `SetPosition`, `GetPosition`, `ListConsumers`, `DeletePosition` from `PositionStore` to `ConsumerStore` (update to use `consumer_id` FK via `resolveConsumerName`)
+- [x] 3.8 Migrate `SetPosition`, `GetPosition`, `ListConsumers`, `DeletePosition` from `PositionStore` to `ConsumerStore` — writes use `resolveConsumerName` for FK; reads (GetPosition, ListConsumers, DeletePosition) use LEFT JOIN on `consumer_names` to prefer `consumer_id` FK and fall back to TEXT column for pre-migration rows
 - [x] 3.8a Fix `SetPosition` backward guard: distinguish "stream not found" from "position would go backwards" — return `BackwardPositionError` (existing unused type in `position.go`) when the stream exists but the position is behind the current stored position
 - [x] 3.9 Ensure all `ConsumerStore` write paths (`SetPosition`, `HeartbeatWithPosition`) populate **both** `consumer` TEXT and `consumer_id` FK columns during Phase 1 (zero-downtime dual-write until Phase 2 migration drops the TEXT column)
 - [x] 3.10 Remove `PositionStore` from `internal/service/storage/position.go` (or deprecate and redirect to `ConsumerStore`)

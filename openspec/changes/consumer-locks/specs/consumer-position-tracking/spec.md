@@ -35,3 +35,22 @@ The system SHALL allow a consumer to record their current read position within a
 - **GIVEN** consumer "search-index" holds the lock for domain "inventory-A", stream "events" via KeepAlive stream
 - **WHEN** consumer sends Heartbeat with position=200 (at or ahead of current position)
 - **THEN** the system updates the consumer position to 200 atomically with the lock heartbeat (single transaction via ConsumerStore.HeartbeatWithPosition)
+
+### Requirement: Position operations are backward compatible with pre-migration data
+Position read operations (GetPosition, ListConsumers, DeletePosition) SHALL correctly handle rows created before the consumer_names migration. Rows with NULL consumer_id are read via the legacy TEXT column. Rows with a populated consumer_id are read via the consumer_names enumeration table. SetPosition promotes legacy rows by dual-writing both columns.
+
+#### Scenario: GetPosition reads a pre-migration row
+- **GIVEN** a consumer_positions row exists with consumer="legacy-index" and consumer_id=NULL (pre-migration)
+- **WHEN** GetPosition is called for "legacy-index"
+- **THEN** the system returns the position from the TEXT column with no error
+
+#### Scenario: ListConsumers merges both migration paths
+- **GIVEN** a pre-migration row exists with consumer="legacy-index" and consumer_id=NULL
+- **AND** a post-migration row exists with consumer="modern-index" and consumer_id populated
+- **WHEN** ListConsumers is called
+- **THEN** the system returns both "legacy-index" and "modern-index"
+
+#### Scenario: DeletePosition removes a pre-migration row
+- **GIVEN** a consumer_positions row exists with consumer="legacy-index" and consumer_id=NULL
+- **WHEN** DeletePosition is called for "legacy-index"
+- **THEN** the row is deleted and GetPosition returns not-found

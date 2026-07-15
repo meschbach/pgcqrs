@@ -436,8 +436,21 @@ func (g *grpcConsumerLock) KeepAlive(stream grpc.BidiStreamingServer[ipc.KeepAli
 	var boundHolder string
 	var heartbeatDomain, heartbeatStream, heartbeatConsumer string
 
+	idleTimeout := 2 * v1.DefaultLockTTL
+	idleTimer := time.NewTimer(idleTimeout)
+	defer idleTimer.Stop()
+
 	for {
-		msg, err := stream.Recv()
+		msg, timedOut, err := g.recvWithTimeout(stream, idleTimer, idleTimeout)
+		if timedOut {
+			trace.SpanFromContext(ctx).AddEvent("stream.idle_timeout", trace.WithAttributes(
+				attribute.String("consumer-lock.domain", heartbeatDomain),
+				attribute.String("consumer-lock.stream", heartbeatStream),
+				attribute.String("consumer-lock.consumer", heartbeatConsumer),
+				attribute.String("consumer-lock.holder", boundHolder),
+			))
+			return nil
+		}
 		if err != nil {
 			return g.handleRecvError(ctx, err, heartbeatDomain, heartbeatStream, heartbeatConsumer)
 		}
@@ -445,6 +458,7 @@ func (g *grpcConsumerLock) KeepAlive(stream grpc.BidiStreamingServer[ipc.KeepAli
 		switch m := msg.Message.(type) {
 		case *ipc.KeepAliveClientMessage_Heartbeat:
 			hb := m.Heartbeat
+			var err error
 			boundHolder, heartbeatDomain, heartbeatStream, heartbeatConsumer, err = g.handleHeartbeatMessage(ctx, stream, hb, boundHolder, heartbeatDomain, heartbeatStream, heartbeatConsumer)
 			if err != nil {
 				return err
@@ -456,6 +470,33 @@ func (g *grpcConsumerLock) KeepAlive(stream grpc.BidiStreamingServer[ipc.KeepAli
 		case *ipc.KeepAliveClientMessage_ReleaseRequest:
 			return g.handleReleaseRequest(ctx, stream, heartbeatDomain, heartbeatStream, heartbeatConsumer, boundHolder)
 		}
+	}
+}
+
+func (g *grpcConsumerLock) recvWithTimeout(
+	stream grpc.BidiStreamingServer[ipc.KeepAliveClientMessage, ipc.KeepAliveServerMessage],
+	timer *time.Timer,
+	timeout time.Duration,
+) (*ipc.KeepAliveClientMessage, bool, error) {
+	type recvResult struct {
+		msg *ipc.KeepAliveClientMessage
+		err error
+	}
+	recvCh := make(chan recvResult, 1)
+	go func() {
+		msg, err := stream.Recv()
+		recvCh <- recvResult{msg: msg, err: err}
+	}()
+
+	select {
+	case result := <-recvCh:
+		if !timer.Stop() {
+			<-timer.C
+		}
+		timer.Reset(timeout)
+		return result.msg, false, result.err
+	case <-timer.C:
+		return nil, true, nil
 	}
 }
 
@@ -472,6 +513,21 @@ func (g *grpcConsumerLock) handleHeartbeatMessage(ctx context.Context, stream gr
 			return "", heartbeatDomain, heartbeatStream, heartbeatConsumer, nil
 		}
 		boundHolder = hb.Holder
+	} else if hb.Events.Domain != heartbeatDomain || hb.Events.Stream != heartbeatStream || hb.Consumer != heartbeatConsumer {
+		trace.SpanFromContext(ctx).AddEvent("stream.binding_mismatch", trace.WithAttributes(
+			attribute.String("consumer-lock.expected_domain", heartbeatDomain),
+			attribute.String("consumer-lock.expected_stream", heartbeatStream),
+			attribute.String("consumer-lock.expected_consumer", heartbeatConsumer),
+			attribute.String("consumer-lock.actual_domain", hb.Events.Domain),
+			attribute.String("consumer-lock.actual_stream", hb.Events.Stream),
+			attribute.String("consumer-lock.actual_consumer", hb.Consumer),
+		))
+		return boundHolder, heartbeatDomain, heartbeatStream, heartbeatConsumer, &v1.LockNotHeldError{
+			Consumer: heartbeatConsumer,
+			Holder:   boundHolder,
+			Domain:   heartbeatDomain,
+			Stream:   heartbeatStream,
+		}
 	}
 	retErr = g.processHeartbeat(ctx, stream, hb, boundHolder)
 	return boundHolder, heartbeatDomain, heartbeatStream, heartbeatConsumer, retErr
@@ -513,11 +569,11 @@ func (g *grpcConsumerLock) handleRecvError(ctx context.Context, err error, domai
 }
 
 func (g *grpcConsumerLock) bindHolder(ctx context.Context, stream grpc.BidiStreamingServer[ipc.KeepAliveClientMessage, ipc.KeepAliveServerMessage], hb *ipc.KeepAliveHeartbeat) (bool, error) {
-	lockState, err := g.consumerStore.GetLock(ctx, hb.Events.Domain, hb.Events.Stream, hb.Consumer)
+	lockState, found, err := g.consumerStore.GetLock(ctx, hb.Events.Domain, hb.Events.Stream, hb.Consumer)
 	if err != nil {
 		return false, err
 	}
-	if lockState == nil {
+	if !found {
 		trace.SpanFromContext(ctx).AddEvent("heartbeat.expired", trace.WithAttributes(
 			attribute.String("consumer-lock.domain", hb.Events.Domain),
 			attribute.String("consumer-lock.stream", hb.Events.Stream),
@@ -631,7 +687,7 @@ func (g *grpcConsumerLock) translateHeartbeatError(err error, stream grpc.BidiSt
 			},
 		})
 	}
-	var lockNotFound *storage2.LockNotFoundError
+	var lockNotFound *v1.LockNotFoundError
 	if errors.As(err, &lockNotFound) {
 		span.SetAttributes(attribute.String("consumer-lock.status", "EXPIRED"))
 		span.AddEvent("heartbeat.expired")

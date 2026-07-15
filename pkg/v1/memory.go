@@ -383,7 +383,6 @@ func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, 
 		return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
 			stream := m.domains[query.Events.Domain].streams[query.Events.Stream]
 			stream.onAddPacket = append(stream.onAddPacket, func(id int64) {
-				fmt.Printf("onAddPacket: %d\n", id)
 				pendingEvents <- id
 			})
 		}})
@@ -435,7 +434,6 @@ func (m *memoryWatch) enqueue(op int64, envelope Envelope, message json.RawMessa
 	}
 	m.lastEvent = envelope.ID
 
-	fmt.Printf("enqueuing: (op: %d, event: %d)\n", op, envelope.ID)
 	whenTime, err := envelope.InternalizeWhen()
 	if err != nil {
 		panic(err)
@@ -500,7 +498,6 @@ func (m *memoryWatch) processInitEvents(ctx context.Context) error {
 func (m *memoryWatch) waitForEvents(ctx context.Context) (*ipc.QueryOut, error) {
 	for {
 		if e := m.pop(); e != nil {
-			fmt.Printf("\tPopped: %v\n", e)
 			return e, nil
 		}
 
@@ -516,21 +513,16 @@ func (m *memoryWatch) waitForEvents(ctx context.Context) (*ipc.QueryOut, error) 
 }
 
 func (m *memoryWatch) processNewEvent(ctx context.Context, id int64) error {
-	fmt.Printf("\tGot event: %d\n", id)
 	envelopes, err := m.core.AllEnvelopes(ctx, m.domain, m.stream)
 	if err != nil {
-		fmt.Printf("\tget all failed: %d\n", id)
 		return err
 	}
 	envelope := envelopes[id]
-	if err = m.filter.filter(ctx, envelope, func(op int64, envelope Envelope, message json.RawMessage) {
-		fmt.Printf("\tmatch received: %d\n", id)
+	if filterErr := m.filter.filter(ctx, envelope, func(op int64, envelope Envelope, message json.RawMessage) {
 		m.enqueue(op, envelope, message)
-	}); err != nil {
-		fmt.Printf("\tfilter failed: %d\n", id)
-		return err
+	}); filterErr != nil {
+		return filterErr
 	}
-	fmt.Printf("\tpost-filter: (count: %d)\n", len(m.pending))
 	return nil
 }
 
@@ -699,20 +691,33 @@ func (m *memory) Release(ctx context.Context, domain, stream, consumer, holder s
 		span.End()
 	}()
 
-	return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+	var releaseErr error
+	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
 		key := m.lockKey(domain, stream, consumer)
 		existing, ok := m.locks[key]
 		if !ok {
 			return
 		}
+		if m.now().After(existing.heldUntil) {
+			return
+		}
 		if existing.holder != holder {
+			releaseErr = &LockNotHeldError{
+				Consumer: consumer,
+				Holder:   holder,
+				Domain:   domain,
+				Stream:   stream,
+			}
 			return
 		}
 		delete(m.locks, key)
-	}})
+	}}); err != nil {
+		return err
+	}
+	return releaseErr
 }
 
-func (m *memory) GetLock(ctx context.Context, domain, stream, consumer string) (out *LockState, retErr error) {
+func (m *memory) GetLock(ctx context.Context, domain, stream, consumer string) (out *LockState, found bool, retErr error) {
 	ctx, span := tracer.Start(ctx, "memory.GetLock", trace.WithAttributes(
 		attribute.String("consumer-lock.domain", domain),
 		attribute.String("consumer-lock.stream", stream),
@@ -748,9 +753,12 @@ func (m *memory) GetLock(ctx context.Context, domain, stream, consumer string) (
 			HeldUntil:      existing.heldUntil,
 		}
 	}}); err != nil {
-		return nil, err
+		return nil, false, err
 	}
-	return state, nil
+	if state == nil {
+		return nil, false, nil
+	}
+	return state, true, nil
 }
 
 func (m *memory) ListLocks(ctx context.Context, domain, stream string) (out []LockState, retErr error) {

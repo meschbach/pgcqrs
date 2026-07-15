@@ -3,6 +3,7 @@ package storage
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -21,13 +22,7 @@ type StreamNotFoundError struct {
 }
 
 func (e *StreamNotFoundError) Error() string {
-	return "stream does not exist: " + e.Domain + "/" + e.Stream
-}
-
-// SetPositionResult contains the result of a SetPosition operation.
-type SetPositionResult struct {
-	PreviousEventID *int64
-	CurrentEventID  int64
+	return fmt.Sprintf("stream does not exist: %s/%s; ensure the stream is created with EnsureStream before setting position", e.Domain, e.Stream)
 }
 
 // BackwardPositionError is returned when a consumer attempts to set position backwards.
@@ -38,7 +33,7 @@ type BackwardPositionError struct {
 }
 
 func (e *BackwardPositionError) Error() string {
-	return "cannot set position backwards"
+	return fmt.Sprintf("cannot set position backwards: consumer=%s current=%d requested=%d; use current position or a higher event ID", e.Consumer, e.Current, e.Requested)
 }
 
 // OperationError wraps database errors with context about the operation.
@@ -204,11 +199,6 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 			  AND cl.held_until > NOW()
 		)`, domain, consumerID, holder, ttl, guaranteeUntil, heldUntil)
 
-	// cleanExpiredLocks is called before row.Scan() because QueryRow returns a Row object
-	// immediately but doesn't execute the query until Scan() is called. This allows the
-	// cleanup to proceed while the database is preparing the INSERT query result.
-	s.cleanExpiredLocks(ctx, domain, stream, consumerID)
-
 	var conflictHolder *string
 	err = row.Scan(&conflictHolder)
 	if err != nil {
@@ -218,6 +208,10 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 		}
 		return nil, &OperationError{Operation: "try acquire lock", Underlying: err}
 	}
+
+	// Clean up expired locks in the same partition after the main query completes.
+	// This is best-effort: errors are logged but do not fail the acquisition.
+	s.cleanExpiredLocks(ctx, domain, stream, consumerID)
 
 	if isConflict(conflictHolder, holder) {
 		AcquireFailures.Add(ctx, 1, attrs)
@@ -262,9 +256,52 @@ func (s *ConsumerStore) cleanExpiredLocks(ctx context.Context, domain, stream st
 	}
 }
 
+type releaseLockInfo struct {
+	holder     string
+	acquiredAt time.Time
+}
+
+func (s *ConsumerStore) queryActiveLock(ctx context.Context, domain, stream string, consumerID int64) (*releaseLockInfo, error) {
+	var info releaseLockInfo
+	err := s.pg.QueryRow(ctx, `
+		SELECT cl.holder, cl.acquired_at
+		FROM consumer_locks cl
+		JOIN events_stream es ON cl.stream_id = es.id
+		WHERE es.app = $1 AND es.stream = $2
+		  AND cl.consumer_id = $3
+		  AND cl.held_until > NOW()`, domain, stream, consumerID).Scan(&info.holder, &info.acquiredAt)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, &OperationError{Operation: "query lock for release", Underlying: err}
+	}
+	return &info, nil
+}
+
+func (s *ConsumerStore) deleteLockAndRecordMetrics(ctx context.Context, domain, stream, consumer string, consumerID int64, acquiredAt time.Time) error {
+	tag, err := s.pg.Exec(ctx, `
+		DELETE FROM consumer_locks cl
+		USING events_stream es
+		WHERE cl.stream_id = es.id
+		  AND es.app = $1 AND es.stream = $2
+		  AND cl.consumer_id = $3`, domain, stream, consumerID)
+	if err != nil {
+		return &OperationError{Operation: "release lock", Underlying: err}
+	}
+	if tag.RowsAffected() > 0 {
+		attrs := lockAttrSet(domain, stream, consumer)
+		ReleaseExplicit.Add(ctx, 1, metric.WithAttributeSet(attrs))
+		activeLocks.Add(ctx, -1, metric.WithAttributeSet(attrs))
+		holdDuration.Record(ctx, time.Since(acquiredAt).Seconds(), metric.WithAttributeSet(attrs))
+	}
+	return nil
+}
+
 // Release releases a consumer lock. Only the current holder can release.
-// The operation is idempotent — releasing an already-expired or already-released
-// lock returns success.
+// The operation is idempotent for expired or non-existent locks — releasing
+// a lock that doesn't exist returns success. However, if the lock exists and
+// is held by a different holder, an error is returned.
 func (s *ConsumerStore) Release(ctx context.Context, domain, stream, consumer, holder string) (retErr error) {
 	ctx, span := tracer.Start(ctx, "consumerStore.Release", trace.WithAttributes(
 		attribute.String("consumer-lock.domain", domain),
@@ -284,44 +321,28 @@ func (s *ConsumerStore) Release(ctx context.Context, domain, stream, consumer, h
 		return err
 	}
 
-	var acquiredAt time.Time
-	err = s.pg.QueryRow(ctx, `
-		SELECT cl.acquired_at
-		FROM consumer_locks cl
-		JOIN events_stream es ON cl.stream_id = es.id
-		WHERE es.app = $1 AND es.stream = $2
-		  AND cl.consumer_id = $3
-		  AND cl.holder = $4`, domain, stream, consumerID, holder).Scan(&acquiredAt)
-	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return &OperationError{Operation: "query lock for release", Underlying: err}
-	}
-	lockFound := err == nil
-
-	tag, err := s.pg.Exec(ctx, `
-		DELETE FROM consumer_locks cl
-		USING events_stream es
-		WHERE cl.stream_id = es.id
-		  AND es.app = $1 AND es.stream = $2
-		  AND cl.consumer_id = $3
-		  AND cl.holder = $4`, domain, stream, consumerID, holder)
+	info, err := s.queryActiveLock(ctx, domain, stream, consumerID)
 	if err != nil {
-		return &OperationError{Operation: "release lock", Underlying: err}
+		return err
 	}
-
-	if tag.RowsAffected() > 0 {
-		ReleaseExplicit.Add(ctx, 1, metric.WithAttributeSet(lockAttrSet(domain, stream, consumer)))
-		activeLocks.Add(ctx, -1, metric.WithAttributeSet(lockAttrSet(domain, stream, consumer)))
-		if lockFound {
-			duration := time.Since(acquiredAt).Seconds()
-			holdDuration.Record(ctx, duration, metric.WithAttributeSet(lockAttrSet(domain, stream, consumer)))
+	if info == nil {
+		return nil
+	}
+	if info.holder != holder {
+		return &v1.LockNotHeldError{
+			Consumer: consumer,
+			Holder:   holder,
+			Domain:   domain,
+			Stream:   stream,
 		}
 	}
-	return nil
+
+	return s.deleteLockAndRecordMetrics(ctx, domain, stream, consumer, consumerID, info.acquiredAt)
 }
 
 // GetLock returns the current state of a consumer lock.
 // Expired locks (held_until < NOW()) are treated as non-existent.
-func (s *ConsumerStore) GetLock(ctx context.Context, domain, stream, consumer string) (out *v1.LockState, retErr error) {
+func (s *ConsumerStore) GetLock(ctx context.Context, domain, stream, consumer string) (out *v1.LockState, found bool, retErr error) {
 	ctx, span := tracer.Start(ctx, "consumerStore.GetLock", trace.WithAttributes(
 		attribute.String("consumer-lock.domain", domain),
 		attribute.String("consumer-lock.stream", stream),
@@ -331,17 +352,13 @@ func (s *ConsumerStore) GetLock(ctx context.Context, domain, stream, consumer st
 		if retErr != nil {
 			span.SetStatus(codes.Error, retErr.Error())
 		}
-		if out == nil {
-			span.SetAttributes(attribute.Bool("consumer-lock.found", false))
-		} else {
-			span.SetAttributes(attribute.Bool("consumer-lock.found", true))
-		}
+		span.SetAttributes(attribute.Bool("consumer-lock.found", found))
 		span.End()
 	}()
 
 	consumerID, err := s.resolveConsumerName(ctx, consumer)
 	if err != nil {
-		return nil, err
+		return nil, false, err
 	}
 
 	var state v1.LockState
@@ -359,16 +376,16 @@ func (s *ConsumerStore) GetLock(ctx context.Context, domain, stream, consumer st
 		&state.GuaranteeUntil, &heldUntil)
 	if err != nil {
 		if err == pgx.ErrNoRows {
-			return nil, nil
+			return nil, false, nil
 		}
-		return nil, &OperationError{Operation: "get lock", Underlying: err}
+		return nil, false, &OperationError{Operation: "get lock", Underlying: err}
 	}
 	if heldUntil.Before(time.Now()) {
 		ExpiryIgnored.Add(ctx, 1, metric.WithAttributeSet(lockAttrSet(domain, stream, consumer)))
-		return nil, nil
+		return nil, false, nil
 	}
 	state.HeldUntil = heldUntil
-	return &state, nil
+	return &state, true, nil
 }
 
 // ListLocks returns all active locks (held_until > NOW()) for a domain/stream pair.
@@ -414,7 +431,10 @@ func (s *ConsumerStore) ListLocks(ctx context.Context, domain, stream string) (o
 	if locks == nil {
 		locks = []v1.LockState{}
 	}
-	return locks, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, &OperationError{Operation: "list locks iterate", Underlying: err}
+	}
+	return locks, nil
 }
 
 // lockState tracks whether a lock exists and who holds it.
@@ -506,7 +526,7 @@ func (s *ConsumerStore) getConflictVersion(ctx context.Context, domain, stream, 
 // or LockNotFoundError if the lock doesn't exist.
 func resolveLockError(state *lockState, domain, stream, consumer, holder string) error {
 	if !state.exists {
-		return &LockNotFoundError{Domain: domain, Stream: stream, Consumer: consumer, Holder: holder}
+		return &v1.LockNotFoundError{Domain: domain, Stream: stream, Consumer: consumer, Holder: holder}
 	}
 	if state.holder != holder {
 		return &v1.LockNotHeldError{Consumer: consumer, Holder: holder, Domain: domain, Stream: stream}
@@ -514,7 +534,9 @@ func resolveLockError(state *lockState, domain, stream, consumer, holder string)
 	if state.heldUntil.Before(time.Now()) {
 		return &v1.LockExpiredError{Consumer: consumer, Domain: domain, Stream: stream}
 	}
-	return &LockNotFoundError{Domain: domain, Stream: stream, Consumer: consumer, Holder: holder}
+	// Race condition: lock exists, holder matches, and not expired, but update failed.
+	// This can happen if the lock was released between check and update.
+	return &v1.LockNotFoundError{Domain: domain, Stream: stream, Consumer: consumer, Holder: holder}
 }
 
 // HeartbeatWithPosition atomically renews a lock and updates the consumer position
@@ -598,7 +620,7 @@ func (s *ConsumerStore) heartbeatWithinTx(ctx context.Context, tx pgx.Tx, domain
 // Populates both consumer TEXT and consumer_id FK columns (Phase 1 dual-write).
 // Returns BackwardPositionError when the stream exists but the position would go backwards.
 // Returns StreamNotFoundError when the stream doesn't exist.
-func (s *ConsumerStore) SetPosition(ctx context.Context, domain, stream, consumer string, eventID int64) (*SetPositionResult, error) {
+func (s *ConsumerStore) SetPosition(ctx context.Context, domain, stream, consumer string, eventID int64) (*v1.SetPositionResult, error) {
 	consumerID, err := s.resolveConsumerName(ctx, consumer)
 	if err != nil {
 		return nil, err
@@ -615,49 +637,54 @@ func (s *ConsumerStore) SetPosition(ctx context.Context, domain, stream, consume
 		return nil, err
 	}
 
-	var previousEventID *int64
+	var previousEventID, currentEventID *int64
 	err = s.pg.QueryRow(ctx, `
-		INSERT INTO consumer_positions (stream_id, consumer, consumer_id, event_id, updated_at)
-		VALUES ($1, $2, $3, $4, NOW())
-		ON CONFLICT (stream_id, consumer) DO UPDATE
-		SET event_id = EXCLUDED.event_id,
-		    consumer_id = EXCLUDED.consumer_id,
-		    updated_at = EXCLUDED.updated_at
-		WHERE COALESCE(consumer_positions.event_id, 0) <= EXCLUDED.event_id
-		RETURNING event_id`,
-		streamID, consumer, consumerID, eventID).Scan(&previousEventID)
+		WITH prev AS (
+			SELECT event_id FROM consumer_positions WHERE stream_id = $1 AND consumer = $2
+		),
+		upsert AS (
+			INSERT INTO consumer_positions (stream_id, consumer, consumer_id, event_id, updated_at)
+			VALUES ($1, $2, $3, $4, NOW())
+			ON CONFLICT (stream_id, consumer) DO UPDATE
+			SET event_id = EXCLUDED.event_id,
+			    consumer_id = EXCLUDED.consumer_id,
+			    updated_at = EXCLUDED.updated_at
+			WHERE COALESCE(consumer_positions.event_id, 0) <= EXCLUDED.event_id
+			RETURNING event_id
+		)
+		SELECT 
+			(SELECT event_id FROM prev) as previous_event_id,
+			(SELECT event_id FROM upsert) as current_event_id`,
+		streamID, consumer, consumerID, eventID).Scan(&previousEventID, &currentEventID)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			var current int64
-			err = s.pg.QueryRow(ctx, `
-				SELECT event_id FROM consumer_positions
-				WHERE stream_id = $1 AND consumer = $2`,
-				streamID, consumer).Scan(&current)
-			if err != nil {
-				current = 0
-			}
-			return nil, &BackwardPositionError{
-				Consumer:  consumer,
-				Current:   current,
-				Requested: eventID,
-			}
-		}
 		return nil, err
 	}
 
-	return &SetPositionResult{
+	if currentEventID == nil {
+		return nil, &BackwardPositionError{
+			Consumer:  consumer,
+			Current:   *previousEventID,
+			Requested: eventID,
+		}
+	}
+
+	return &v1.SetPositionResult{
 		PreviousEventID: previousEventID,
-		CurrentEventID:  eventID,
+		CurrentEventID:  *currentEventID,
 	}, nil
 }
 
 // GetPosition retrieves a consumer's current position in a stream.
+// Prefers the consumer_id FK path via the consumer_names enumeration table.
+// Falls back to the TEXT column for pre-migration rows where consumer_id is NULL.
 func (s *ConsumerStore) GetPosition(ctx context.Context, domain, stream, consumer string) (eventID int64, found bool, err error) {
 	err = s.pg.QueryRow(ctx, `
 		SELECT cp.event_id
 		FROM consumer_positions cp
 		JOIN events_stream es ON cp.stream_id = es.id
-		WHERE es.app = $1 AND es.stream = $2 AND cp.consumer = $3`,
+		LEFT JOIN consumer_names cn ON cp.consumer_id = cn.id
+		WHERE es.app = $1 AND es.stream = $2
+		  AND (cn.name = $3 OR (cp.consumer_id IS NULL AND cp.consumer = $3))`,
 		domain, stream, consumer).Scan(&eventID)
 	if err != nil {
 		if err == pgx.ErrNoRows {
@@ -669,17 +696,18 @@ func (s *ConsumerStore) GetPosition(ctx context.Context, domain, stream, consume
 }
 
 // ListConsumers returns all consumers that have a position in the specified stream.
+// Prefers names from the consumer_names enumeration table; falls back to the
+// TEXT column for pre-migration rows where consumer_id is NULL.
 func (s *ConsumerStore) ListConsumers(ctx context.Context, domain, stream string) ([]string, error) {
 	rows, err := s.pg.Query(ctx, `
-		SELECT cp.consumer
+		SELECT COALESCE(cn.name, cp.consumer)
 		FROM consumer_positions cp
 		JOIN events_stream es ON cp.stream_id = es.id
-		WHERE es.app = $1 AND es.stream = $2`, domain, stream)
+		LEFT JOIN consumer_names cn ON cp.consumer_id = cn.id
+		WHERE es.app = $1 AND es.stream = $2
+		GROUP BY COALESCE(cn.name, cp.consumer)`, domain, stream)
 	if err != nil {
-		if err == pgx.ErrNoRows {
-			return []string{}, nil
-		}
-		return nil, err
+		return nil, &OperationError{Operation: "list consumers", Underlying: err}
 	}
 	defer rows.Close()
 
@@ -687,35 +715,31 @@ func (s *ConsumerStore) ListConsumers(ctx context.Context, domain, stream string
 	for rows.Next() {
 		var consumer string
 		if err := rows.Scan(&consumer); err != nil {
-			return nil, err
+			return nil, &OperationError{Operation: "list consumers scan", Underlying: err}
 		}
 		consumers = append(consumers, consumer)
 	}
 	if consumers == nil {
 		consumers = []string{}
 	}
-	return consumers, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, &OperationError{Operation: "list consumers iterate", Underlying: err}
+	}
+	return consumers, nil
 }
 
 // DeletePosition removes a consumer's position from a stream.
+// Prefers the consumer_id FK path via the consumer_names enumeration table.
+// Falls back to the TEXT column for pre-migration rows where consumer_id is NULL.
 func (s *ConsumerStore) DeletePosition(ctx context.Context, domain, stream, consumer string) error {
 	_, err := s.pg.Exec(ctx, `
 		DELETE FROM consumer_positions
 		WHERE stream_id IN (
-			SELECT es.id FROM events_stream es
-			WHERE es.app = $1 AND es.stream = $2
-		) AND consumer = $3`, domain, stream, consumer)
-	return err
-}
-
-// LockNotFoundError is returned when a lock does not exist.
-type LockNotFoundError struct {
-	Domain   string
-	Stream   string
-	Consumer string
-	Holder   string
-}
-
-func (e *LockNotFoundError) Error() string {
-	return "lock not found: " + e.Domain + "/" + e.Stream + "/" + e.Consumer + "/" + e.Holder
+			SELECT es.id FROM events_stream es WHERE es.app = $1 AND es.stream = $2
+		) AND (consumer_id = (SELECT id FROM consumer_names WHERE name = $3)
+			   OR (consumer_id IS NULL AND consumer = $3))`, domain, stream, consumer)
+	if err != nil {
+		return &OperationError{Operation: "delete position", Underlying: err}
+	}
+	return nil
 }

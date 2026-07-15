@@ -192,9 +192,10 @@ func TestChannelNonBlockingDropsEvents(t *testing.T) {
 
 	ctx := t.Context()
 	ch := w.Channel(ctx, 1, WithNonBlocking())
-	time.Sleep(50 * time.Millisecond)
+	// Give producer time to start and potentially drop events
+	time.Sleep(100 * time.Millisecond)
 	var received []v1.Envelope
-	timeout := time.After(100 * time.Millisecond)
+	timeout := time.After(200 * time.Millisecond)
 	done := false
 	for !done {
 		select {

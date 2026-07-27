@@ -10,6 +10,9 @@ linters:
     paths:
       - cmd
       - examples
+      # Exclude protobuf generated files
+      - ".*\\.pb\\.go$"
+      - ".*_grpc\\.pb\\.go$"
   enable:
     # Core
     - errcheck

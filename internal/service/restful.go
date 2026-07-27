@@ -89,28 +89,18 @@ func (s *service) v1QueryBatchR2Route() http.HandlerFunc {
 			restful.Ok(writer, request, v1.WireBatchR2Result{})
 			return
 		}
-		eventsStream, runStream, err := s.repository.Stream(ctx, operations)
-		if err != nil {
-			restful.InternalError(writer, request, err)
-			return
-		}
-
-		var streamError error
-		go func() {
-			_, streamError = runStream(ctx)
-		}()
 
 		out := v1.WireBatchR2Result{}
-		for r := range eventsStream {
+		for r, err := range s.repository.Stream(ctx, operations) {
+			if err != nil {
+				restful.InternalError(writer, request, err)
+				return
+			}
 			out.Results = append(out.Results, v1.WireBatchR2Dispatch{
 				Envelope: r.Envelope,
 				Event:    r.Event,
 				Op:       r.Op,
 			})
-		}
-		if streamError != nil {
-			restful.InternalError(writer, request, streamError)
-			return
 		}
 		span := trace.SpanFromContext(ctx)
 		span.AddEvent("events done")

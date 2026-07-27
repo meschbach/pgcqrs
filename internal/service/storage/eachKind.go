@@ -8,7 +8,12 @@ type EachKind struct {
 	Stream  string
 	Op      int
 	Kind    string
-	AfterID *int64
+	AfterID int64
+}
+
+// UpdateAfterID sets the cursor for filtering events after the given ID.
+func (e *EachKind) UpdateAfterID(id int64) {
+	e.AfterID = id
 }
 
 func (e *EachKind) append(q *SQLQuery) {
@@ -19,8 +24,8 @@ INNER JOIN events_stream es ON e.stream_id = es.id
 WHERE es.app = %s and es.stream = %s and ek.kind = %s`,
 		e.Op, q.hole(e.App), q.hole(e.Stream), q.hole(e.Kind))
 
-	if e.AfterID != nil {
-		query += fmt.Sprintf(" AND e.id > %s", q.hole(*e.AfterID))
+	if e.AfterID > 0 {
+		query += fmt.Sprintf(" AND e.id > %s", q.hole(e.AfterID))
 	}
 
 	q.append(query)

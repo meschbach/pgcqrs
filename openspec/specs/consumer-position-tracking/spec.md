@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD
+Consumer position tracking allows consumers to persist and retrieve their read position within a stream, enabling resumable projectors and multi-consumer architectures. Without built-in position tracking, clients must manage this state externally (in Redis, databases, etc). Positions are forward-only — a consumer cannot set position backwards — and support filtering queries via AfterID for efficient backfill from a known position.
 
 ## Requirements
 

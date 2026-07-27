@@ -45,6 +45,27 @@ To get started quickly, you'll need:
 Just run `./docker-up.sh` to get it moving on port `9000` and `9001` .  The tool `pgcqrs` will be available in the root
 of the repository.
 
+The `dev.sh` script provides fine-grained control over the development workflow:
+
+```bash
+# Full pipeline: build, test, deploy, run examples + integration tests
+./dev.sh up
+
+# Rebuild and restart containers only (after code changes)
+./dev.sh services
+
+# Run example drift detection only
+./dev.sh examples
+
+# Run transport verification tests only (memory, HTTP, gRPC)
+./dev.sh integration
+
+# Run both examples + integration tests
+./dev.sh system_tests
+```
+
+**Typical workflow**: Make code changes → `./dev.sh services` → `./dev.sh examples` or `./dev.sh integration` as needed.
+
 ### Examples and Testing
 
 The project contains several examples demonstrating different usage patterns in the `examples/` directory:
@@ -53,8 +74,9 @@ The project contains several examples demonstrating different usage patterns in 
 *   **Querying**: How to query events (`examples/query`, `examples/query2`)
 *   **Watching**: Subscribing to streams (`examples/watch`)
 *   **Batching**: Batch query operations (`examples/queryBatch`)
+*   **View Projections**: Materialized views with typed handlers (`examples/view-projection`, `examples/view-projection-versioned`, `examples/view-projection-watch`) - requires gRPC transport
 
-A whole battery of examples are available via `./run-examples.sh`.
+A whole battery of examples are available via `./run-examples.sh` or `./dev.sh examples`.
 
 # Contributing
 Pull requests are welcome.

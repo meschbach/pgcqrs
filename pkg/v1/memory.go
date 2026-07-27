@@ -228,6 +228,37 @@ func (m *memory) GetEvent(ctx context.Context, domain, stream string, id int64, 
 	return json.Unmarshal(data, event)
 }
 
+func (m *memory) GetEnvelope(ctx context.Context, domain, stream string, id int64) (Envelope, error) {
+	var envelope Envelope
+	var found bool
+	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
+		d, ok := m.domains[domain]
+		if !ok {
+			return
+		}
+		s, ok := d.streams[stream]
+		if !ok {
+			return
+		}
+		if len(s.packets) <= int(id) {
+			return
+		}
+		p := s.packets[id]
+		envelope = Envelope{
+			ID:   id,
+			When: FormatEnvelopeWhen(p.when),
+			Kind: p.kind,
+		}
+		found = true
+	}}); err != nil {
+		return Envelope{}, err
+	}
+	if !found {
+		return Envelope{}, nil
+	}
+	return envelope, nil
+}
+
 func (m *memory) AllEnvelopes(ctx context.Context, domain, stream string) ([]Envelope, error) {
 	var envelopes []Envelope
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
@@ -375,7 +406,6 @@ func (m *memory) processEnvelopeForIDs(parent context.Context, domain, stream st
 
 func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
 	pendingEvents := make(chan int64, 128)
-	var initEventEnd int64
 
 	initSetup := &errgroup.Group{}
 	// Registers a listener for on added packets
@@ -385,13 +415,6 @@ func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, 
 			stream.onAddPacket = append(stream.onAddPacket, func(id int64) {
 				pendingEvents <- id
 			})
-		}})
-	})
-
-	initSetup.Go(func() error {
-		return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
-			stream := m.domains[query.Events.Domain].streams[query.Events.Stream]
-			initEventEnd = int64(len(stream.packets))
 		}})
 	})
 
@@ -410,7 +433,7 @@ func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, 
 			core:  m,
 			query: query,
 		},
-		initEventEnd: initEventEnd,
+		lastEvent: -1,
 	}, nil
 }
 
@@ -422,14 +445,36 @@ type memoryWatch struct {
 	pendingEvents <-chan int64
 	filter        *queryInFilter
 
-	// Internal state
-	pending      []*ipc.QueryOut
-	lastEvent    int64
-	initEventEnd int64
+	// pending holds events that have been enqueued but not yet returned by Tick.
+	pending []*ipc.QueryOut
+
+	// lastEvent is the highest event ID that has been enqueued. It is used
+	// exclusively by enqueue() for deduplication: any envelope with an ID
+	// less than or equal to lastEvent is silently skipped. This ensures
+	// events are delivered exactly once even if processInitEvents or
+	// processNewEvent processes overlapping envelopes.
+	lastEvent int64
+
+	// initDone tracks whether processInitEvents has run to completion at
+	// least once. Before initDone is true, Tick calls processInitEvents
+	// to catch up on events that existed before Watch was created. Once
+	// initDone is set, processInitEvents is skipped on every subsequent
+	// Tick, and only the pendingEvents channel (fed by onAddPacket
+	// listeners registered in Watch) delivers new events.
+	//
+	// This flag decouples the init-phase gate from the dedup key
+	// (lastEvent), avoiding the off-by-one that would occur if
+	// lastEvent were compared against a count-based boundary.
+	initDone bool
 }
 
+// enqueue adds an event to the pending queue, but only if its ID is
+// greater than lastEvent. This deduplication guard ensures each event
+// is delivered exactly once across both the init phase (processInitEvents)
+// and the live phase (processNewEvent via pendingEvents channel). The
+// caller is responsible for not calling enqueue with stale envelopes.
 func (m *memoryWatch) enqueue(op int64, envelope Envelope, message json.RawMessage) {
-	if envelope.ID < m.lastEvent {
+	if envelope.ID <= m.lastEvent {
 		return
 	}
 	m.lastEvent = envelope.ID
@@ -473,8 +518,14 @@ func (m *memoryWatch) Tick(ctx context.Context) (*ipc.QueryOut, error) {
 	return m.waitForEvents(ctx)
 }
 
+// processInitEvents processes events that existed when Watch was created.
+// On the first call it reads all envelopes from the stream, applies the
+// query filter, and enqueues any that pass. Once complete it sets
+// initDone to true so subsequent Ticks skip this function entirely.
+// The enqueue() call handles deduplication via lastEvent, so overlapping
+// envelopes are silently skipped.
 func (m *memoryWatch) processInitEvents(ctx context.Context) error {
-	if m.lastEvent >= m.initEventEnd {
+	if m.initDone {
 		return nil
 	}
 
@@ -489,9 +540,8 @@ func (m *memoryWatch) processInitEvents(ctx context.Context) error {
 		}); err != nil {
 			return err
 		}
-		m.lastEvent = e.ID
 	}
-	m.lastEvent = m.initEventEnd
+	m.initDone = true
 	return nil
 }
 
@@ -512,12 +562,17 @@ func (m *memoryWatch) waitForEvents(ctx context.Context) (*ipc.QueryOut, error) 
 	}
 }
 
+// processNewEvent handles a single event arriving via the onAddPacket
+// listener after Watch was created. It applies the query filter and
+// enqueues matching events. Deduplication is handled by enqueue().
 func (m *memoryWatch) processNewEvent(ctx context.Context, id int64) error {
-	envelopes, err := m.core.AllEnvelopes(ctx, m.domain, m.stream)
+	envelope, err := m.core.GetEnvelope(ctx, m.domain, m.stream, id)
 	if err != nil {
 		return err
 	}
-	envelope := envelopes[id]
+	if envelope.ID == 0 && id != 0 {
+		return nil
+	}
 	if filterErr := m.filter.filter(ctx, envelope, func(op int64, envelope Envelope, message json.RawMessage) {
 		m.enqueue(op, envelope, message)
 	}); filterErr != nil {

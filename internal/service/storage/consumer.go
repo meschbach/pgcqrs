@@ -135,10 +135,6 @@ func lockAttrSet(domain, stream, consumer string) attribute.Set {
 	)
 }
 
-func isConflict(conflictHolder *string, holder string) bool {
-	return conflictHolder != nil && *conflictHolder != holder
-}
-
 // TryAcquire attempts to acquire an exclusive lock for a consumer on a stream.
 // Returns a LockResult indicating whether the lock was acquired and, if not,
 // who currently holds it.
@@ -150,17 +146,6 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 		attribute.String("consumer-lock.holder", holder),
 		attribute.Float64("consumer-lock.ttl", ttl.Seconds()),
 	))
-	defer func() {
-		if retErr != nil {
-			span.SetStatus(codes.Error, retErr.Error())
-		}
-		if out != nil {
-			span.SetAttributes(
-				attribute.Bool("consumer-lock.acquired", out.Acquired),
-			)
-		}
-		span.End()
-	}()
 
 	attrs := metric.WithAttributeSet(lockAttrSet(domain, stream, consumer))
 	AcquireAttempts.Add(ctx, 1, attrs)
@@ -170,7 +155,90 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 		return nil, &v1.TTLTooLowError{Provided: ttl, Minimum: v1.LockMinimumTTL}
 	}
 
-	consumerID, err := s.resolveConsumerName(ctx, consumer)
+	tx, err := s.pg.Begin(ctx)
+	if err != nil {
+		return nil, &OperationError{Operation: "begin acquire transaction", Underlying: err}
+	}
+	defer func() {
+		if retErr != nil {
+			retErr = errors.Join(retErr, tx.Rollback(ctx))
+			span.SetStatus(codes.Error, retErr.Error())
+		} else if out != nil {
+			span.SetAttributes(
+				attribute.Bool("consumer-lock.acquired", out.Acquired),
+			)
+		}
+		span.End()
+	}()
+
+	result, err := s.tryAcquireInTx(ctx, tx, domain, stream, consumer, holder, ttl)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return nil, &OperationError{Operation: "commit acquire", Underlying: err}
+	}
+
+	if result.Acquired {
+		AcquireSuccesses.Add(ctx, 1, attrs)
+		activeLocks.Add(ctx, 1, attrs)
+	} else {
+		AcquireFailures.Add(ctx, 1, attrs)
+	}
+	return result, nil
+}
+
+// queryConflictHolder retrieves the current holder for a consumer lock within a transaction.
+// Returns empty string and nil error if no active lock exists.
+func (s *ConsumerStore) queryConflictHolder(ctx context.Context, tx pgx.Tx, streamID, consumerID int64) (string, error) {
+	var holder string
+	err := tx.QueryRow(ctx, `
+		SELECT holder FROM consumer_locks
+		WHERE stream_id = $1 AND consumer_id = $2
+		  AND held_until > NOW()`,
+		streamID, consumerID).Scan(&holder)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return "", nil
+	}
+	if err != nil {
+		return "", &OperationError{Operation: "query conflict holder", Underlying: err}
+	}
+	return holder, nil
+}
+
+// resolveStreamID returns the numeric ID for a domain/stream pair within a transaction.
+func (s *ConsumerStore) resolveStreamID(ctx context.Context, tx pgx.Tx, domain, stream string) (int64, error) {
+	var streamID int64
+	err := tx.QueryRow(ctx,
+		`SELECT id FROM events_stream WHERE app = $1 AND stream = $2`,
+		domain, stream).Scan(&streamID)
+	if err != nil {
+		if errors.Is(err, pgx.ErrNoRows) {
+			return 0, &StreamNotFoundError{Domain: domain, Stream: stream}
+		}
+		return 0, &OperationError{Operation: "resolve stream", Underlying: err}
+	}
+	return streamID, nil
+}
+
+// tryAcquireInTx executes the acquire logic within an already-started transaction.
+// Acquires an advisory lock to serialize concurrent callers for the same consumer.
+// Returns the lock result or an error.
+func (s *ConsumerStore) tryAcquireInTx(ctx context.Context, tx pgx.Tx, domain, stream, consumer, holder string, ttl time.Duration) (*v1.LockResult, error) {
+	// Advisory lock serializes all TryAcquire calls for the same consumer.
+	// Different consumers are unaffected.
+	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('consumer-lock-' || $1))`, consumer)
+	if err != nil {
+		return nil, &OperationError{Operation: "advisory lock", Underlying: err}
+	}
+
+	consumerID, err := s.resolveConsumerNameInTx(ctx, tx, consumer)
+	if err != nil {
+		return nil, err
+	}
+
+	streamID, err := s.resolveStreamID(ctx, tx, domain, stream)
 	if err != nil {
 		return nil, err
 	}
@@ -178,11 +246,10 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 	guaranteeUntil := time.Now().Add(time.Duration(float64(ttl) * v1.DefaultGuaranteeFraction))
 	heldUntil := time.Now().Add(ttl)
 
-	row := s.pg.QueryRow(ctx, `
+	var acquiredHolder *string
+	err = tx.QueryRow(ctx, `
 		INSERT INTO consumer_locks (stream_id, consumer_id, holder, ttl, guarantee_until, held_until)
-		SELECT es.id, $2, $3, $4, $5, $6
-		FROM events_stream es
-		WHERE es.app = $1 AND es.stream = $7
+		VALUES ($1, $2, $3, $4, $5, $6)
 		ON CONFLICT (stream_id, consumer_id) DO UPDATE
 		SET holder = EXCLUDED.holder,
 		    acquired_at = NOW(),
@@ -190,48 +257,35 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 		    ttl = EXCLUDED.ttl,
 		    guarantee_until = EXCLUDED.guarantee_until,
 		    held_until = EXCLUDED.held_until
-		RETURNING (
-			SELECT cl.holder
-			FROM consumer_locks cl
-			WHERE cl.stream_id = consumer_locks.stream_id
-			  AND cl.consumer_id = consumer_locks.consumer_id
-			  AND cl.held_until > NOW()
-		)`, domain, consumerID, holder, ttl, guaranteeUntil, heldUntil, stream)
+		WHERE consumer_locks.held_until < NOW()
+		   OR consumer_locks.holder = EXCLUDED.holder
+		RETURNING holder`,
+		streamID, consumerID, holder, ttl, guaranteeUntil, heldUntil).Scan(&acquiredHolder)
 
-	var conflictHolder *string
-	err = row.Scan(&conflictHolder)
-	if err != nil {
-		if err == pgx.ErrNoRows {
-			AcquireFailures.Add(ctx, 1, attrs)
-			return nil, &StreamNotFoundError{Domain: domain, Stream: stream}
-		}
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
 		return nil, &OperationError{Operation: "try acquire lock", Underlying: err}
 	}
 
-	// Clean up expired locks in the same partition after the main query completes.
-	// This is best-effort: errors are logged but do not fail the acquisition.
-	s.cleanExpiredLocks(ctx, domain, stream, consumerID)
-
-	if isConflict(conflictHolder, holder) {
-		AcquireFailures.Add(ctx, 1, attrs)
-		out = &v1.LockResult{
-			Acquired:       false,
-			HeldBy:         *conflictHolder,
+	if acquiredHolder != nil {
+		s.cleanExpiredLocks(ctx, domain, stream, consumerID)
+		return &v1.LockResult{
+			Acquired:       true,
+			HeldBy:         holder,
 			GuaranteeUntil: guaranteeUntil,
 			HeldUntil:      heldUntil,
-		}
-		return out, nil
+		}, nil
 	}
 
-	AcquireSuccesses.Add(ctx, 1, attrs)
-	activeLocks.Add(ctx, 1, attrs)
-	out = &v1.LockResult{
-		Acquired:       true,
-		HeldBy:         holder,
+	currentHolder, err := s.queryConflictHolder(ctx, tx, streamID, consumerID)
+	if err != nil {
+		return nil, err
+	}
+	return &v1.LockResult{
+		Acquired:       false,
+		HeldBy:         currentHolder,
 		GuaranteeUntil: guaranteeUntil,
 		HeldUntil:      heldUntil,
-	}
-	return out, nil
+	}, nil
 }
 
 // cleanExpiredLocks removes up to 128 expired lock rows in the same (domain, stream) partition.

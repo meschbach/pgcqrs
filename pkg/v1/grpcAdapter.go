@@ -77,6 +77,18 @@ func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	}, nil
 }
 
+// NewGrpcAdapter wraps an existing gRPC connection into a GrpcAdapter.
+// This complements NewGRPCTransport which dials internally; this variant accepts
+// a pre-dialed connection so Connect can share one conn for both Wire and Transport.
+func NewGrpcAdapter(conn *grpc.ClientConn) *GrpcAdapter {
+	return &GrpcAdapter{
+		commands:  ipc.NewCommandClient(conn),
+		queries:   ipc.NewQueryClient(conn),
+		positions: ipc.NewConsumerPositionClient(conn),
+		locks:     ipc.NewConsumerLockClient(conn),
+	}
+}
+
 // EnsureStream ensures the given stream exists via gRPC.
 func (g *GrpcAdapter) EnsureStream(ctx context.Context, domain, stream string) error {
 	_, err := g.commands.CreateStream(ctx, &ipc.CreateStreamIn{Target: &ipc.DomainStream{

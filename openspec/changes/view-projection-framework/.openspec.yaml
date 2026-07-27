@@ -1,0 +1,14 @@
+title: ViewProjection Framework
+description: Framework for building resumable, lock-coordinated materialized views from event streams
+status: proposed
+schema: spec-driven
+artifacts:
+  proposal:
+    status: done
+    updated: "2026-07-17"
+  design:
+    status: done
+    updated: "2026-07-17"
+  tasks:
+    status: done
+    updated: "2026-07-17"

@@ -27,6 +27,8 @@ golangci-lint run ./...
 ./integration-tests.sh
 ```
 
+**Note**: To verify fixes work systemically (as CI does), run `./dev.sh up`. This runs the full test suite including unit tests, integration tests with a real PostgreSQL database, and system tests across all transports (memory, HTTP, gRPC).
+
 ### Building
 
 ```bash
@@ -41,13 +43,28 @@ go build ./cmd/pgcqrs
 
 ### Development Environment
 
+The `dev.sh` script provides fine-grained control over the development workflow:
+
 ```bash
-# Start local development environment (Docker Compose)
+# Full pipeline: build, test, deploy, run examples + integration tests
 ./dev.sh up
 
-# Or use docker-up.sh for quicker setup on ports 9000/9001
-./docker-up.sh
+# Rebuild and restart containers only (after code changes)
+./dev.sh services
+
+# Run example drift detection only
+./dev.sh examples
+
+# Run transport verification tests only (memory, HTTP, gRPC)
+./dev.sh integration
+
+# Run both examples + integration tests
+./dev.sh system_tests
 ```
+
+**Typical workflow**: Make code changes → `./dev.sh services` → `./dev.sh examples` or `./dev.sh integration` as needed.
+
+Alternatively, use `docker-up.sh` for quicker setup on ports 9000/9001.
 
 ### Quality Gates
 
@@ -55,12 +72,14 @@ This project has two quality gates that should be run locally to match CI:
 
 1. **Example drift detection** - verifies examples compile and work with the current codebase
    ```bash
-   ./run-examples.sh
+   ./dev.sh examples
+   # or directly: ./run-examples.sh
    ```
 
 2. **Transport verification** - runs systest suite with memory, HTTP, and gRPC transports
    ```bash
-   ./integration-tests.sh
+   ./dev.sh integration
+   # or directly: ./integration-tests.sh
    ```
 
 Both are automatically run via `./dev.sh up` when the system tests stage executes.
@@ -85,6 +104,7 @@ Both are automatically run via `./dev.sh up` when the system tests stage execute
 - Use `gofmt` and `goimports` for code formatting
 - Run `gofmt -w -s .` or `goimports -w .` before committing
 - No line length limit enforced by gofmt, but keep lines reasonable
+- **Generated files**: Do NOT manually edit or run formatters/linters on protobuf-generated files (`*.pb.go`, `*_grpc.pb.go`). These are auto-generated from `.proto` files and excluded via `.golangci.yml`. To regenerate, use `protoc` with the appropriate plugins.
 
 ### Linting
 
@@ -315,6 +335,8 @@ Configuration is typically JSON-based. See `deploy/integration-tests/primary.jso
 ### Important Environment Variables
 
 - `CFG_PRIMARY` - Path to primary configuration file
+- `PGCQRS_SERVICE_TRANSPORT` - Transport type for examples (memory, http, grpc)
+- `PGCQRS_SERVICE_URL` - URL for examples (e.g., http://localhost:9000 or localhost:9001)
 - `PGCQRS_TEST_TRANSPORT` - Transport type for tests (memory, http, grpc)
 - `PGCQRS_TEST_URL` - URL for integration tests
 - `PGCQRS_TEST_APP_BASE` - App base name for tests

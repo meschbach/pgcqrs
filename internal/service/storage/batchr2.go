@@ -9,6 +9,12 @@ import (
 // TranslateBatchR2 translates a WireBatchR2Request into a list of storage operations.
 func TranslateBatchR2(_ context.Context, app, stream string, request *v1.WireBatchR2Request) []Operation {
 	var output []Operation
+
+	var afterID int64
+	if request.AfterID != nil {
+		afterID = *request.AfterID
+	}
+
 	// Dispatch kinds
 	for _, kind := range request.OnKinds {
 		if kind.All != nil {
@@ -17,7 +23,7 @@ func TranslateBatchR2(_ context.Context, app, stream string, request *v1.WireBat
 				Stream:  stream,
 				Op:      *kind.All,
 				Kind:    kind.Kind,
-				AfterID: request.AfterID,
+				AfterID: afterID,
 			})
 		}
 		for _, match := range kind.Match {
@@ -27,7 +33,7 @@ func TranslateBatchR2(_ context.Context, app, stream string, request *v1.WireBat
 				Op:      match.Op,
 				Kind:    kind.Kind,
 				Subset:  match.Subset,
-				AfterID: request.AfterID,
+				AfterID: afterID,
 			})
 		}
 	}

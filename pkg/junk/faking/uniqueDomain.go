@@ -1,6 +1,10 @@
 package faking
 
-import "github.com/go-faker/faker/v4"
+import (
+	"sync"
+
+	"github.com/go-faker/faker/v4"
+)
 
 // UniqueDomain will ensure each invocation of `Next()` returns a unique value from the given `gen` function.
 // It is useful when you need to generate unique values for testing or data generation purposes.
@@ -20,20 +24,24 @@ import "github.com/go-faker/faker/v4"
 //     fmt.Println(domain.Next()) // Outputs a unique integer
 //     fmt.Println(domain.Next()) // Outputs another unique integer
 type UniqueDomain[T comparable] struct {
-	grouping map[T]bool
-	gen      func() T
+	exclusive sync.Mutex
+	grouping  map[T]bool
+	gen       func() T
 }
 
 // NewUniqueDomain creates a new UniqueDomain with the given generator.
 func NewUniqueDomain[T comparable](gen func() T) *UniqueDomain[T] {
 	return &UniqueDomain[T]{
-		grouping: make(map[T]bool),
-		gen:      gen,
+		exclusive: sync.Mutex{},
+		grouping:  make(map[T]bool),
+		gen:       gen,
 	}
 }
 
 // Next returns a unique value from the domain.
 func (u *UniqueDomain[T]) Next() T {
+	u.exclusive.Lock()
+	defer u.exclusive.Unlock()
 	retry := 0
 	for {
 		value := u.gen()

@@ -9,6 +9,8 @@ type matchID struct {
 	op     int
 }
 
+func (m *matchID) UpdateAfterID(int64) {}
+
 func (m *matchID) append(q *SQLQuery) {
 	query := fmt.Sprintf(`SELECT e.id as id, e.when_occurred, %d as op, e.event, ek.kind
 FROM events e

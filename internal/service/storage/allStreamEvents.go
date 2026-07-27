@@ -7,7 +7,12 @@ type AllStreamEvents struct {
 	Domain  string
 	Stream  string
 	Op      int
-	AfterID *int64
+	AfterID int64
+}
+
+// UpdateAfterID sets the cursor for filtering events after the given ID.
+func (a *AllStreamEvents) UpdateAfterID(id int64) {
+	a.AfterID = id
 }
 
 func (a *AllStreamEvents) append(q *SQLQuery) {
@@ -18,8 +23,8 @@ INNER JOIN events_stream es ON e.stream_id = es.id
 WHERE es.app = %s and es.stream = %s`,
 		a.Op, q.hole(a.Domain), q.hole(a.Stream))
 
-	if a.AfterID != nil {
-		query += fmt.Sprintf(" AND e.id > %s", q.hole(*a.AfterID))
+	if a.AfterID > 0 {
+		query += fmt.Sprintf(" AND e.id > %s", q.hole(a.AfterID))
 	}
 
 	q.append(query)

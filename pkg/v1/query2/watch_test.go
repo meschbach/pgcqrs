@@ -43,6 +43,23 @@ func (m *mockWatchInternal) Tick(_ context.Context) (*ipc.QueryOut, error) {
 	return msg, nil
 }
 
+// blockingMockWatchInternal blocks on Tick until unblock is closed.
+// Signals readiness via ready before blocking.
+type blockingMockWatchInternal struct {
+	ready   chan struct{}
+	unblock chan struct{}
+}
+
+func (b *blockingMockWatchInternal) Tick(ctx context.Context) (*ipc.QueryOut, error) {
+	close(b.ready)
+	select {
+	case <-b.unblock:
+		return nil, context.Canceled
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
+}
+
 func newMockMessage(id int64, kind string) *ipc.QueryOut {
 	return &ipc.QueryOut{
 		Op: 0,
@@ -73,241 +90,211 @@ func newTestWatch(messages []*ipc.QueryOut, errs []error) *Watch {
 	}
 }
 
-func TestChannelEventsFlowThrough(t *testing.T) {
+func TestTickWithIDReturnsEventID(t *testing.T) {
 	t.Parallel()
 	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
-		newMockMessage(2, "kind-b"),
-		newMockMessage(3, "kind-a"),
-	}
-	w := newTestWatch(messages, []error{nil, nil, nil, context.Canceled})
-
-	ctx := t.Context()
-	ch := w.Channel(ctx, 4)
-	var received []v1.Envelope
-	for env := range ch {
-		received = append(received, env)
-	}
-
-	require.Len(t, received, 3)
-	assert.Equal(t, int64(1), received[0].ID)
-	assert.Equal(t, "kind-a", received[0].Kind)
-	assert.Equal(t, int64(2), received[1].ID)
-	assert.Equal(t, "kind-b", received[1].Kind)
-	assert.Equal(t, int64(3), received[2].ID)
-	assert.Equal(t, "kind-a", received[2].Kind)
-}
-
-func TestChannelErrorClosesChannel(t *testing.T) {
-	t.Parallel()
-	expectedErr := errors.New("test error")
-	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
-	}
-	w := newTestWatch(messages, []error{nil, expectedErr})
-
-	ctx := t.Context()
-	ch := w.Channel(ctx, 4)
-	var received []v1.Envelope
-	for env := range ch {
-		received = append(received, env)
-	}
-
-	require.Len(t, received, 1)
-	assert.Equal(t, int64(1), received[0].ID)
-	assert.Equal(t, expectedErr, w.Err())
-}
-
-func TestChannelContextCancellation(t *testing.T) {
-	t.Parallel()
-	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
-		newMockMessage(2, "kind-b"),
-	}
-	w := newTestWatch(messages, []error{nil, nil, context.Canceled})
-
-	ctx := t.Context()
-	ch := w.Channel(ctx, 4)
-	var received []v1.Envelope
-	for env := range ch {
-		received = append(received, env)
-		if len(received) >= 2 {
-			break
-		}
-	}
-
-	require.Len(t, received, 2)
-}
-
-func TestChannelDefaultBacklog(t *testing.T) {
-	t.Parallel()
-	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
+		newMockMessage(42, "ItemCreated"),
 	}
 	w := newTestWatch(messages, []error{nil, context.Canceled})
 
 	ctx := t.Context()
-	ch := w.Channel(ctx, 0)
-	var received []v1.Envelope
-	for env := range ch {
-		received = append(received, env)
-	}
+	id, err := w.TickWithID(ctx)
 
-	require.Len(t, received, 1)
+	require.NoError(t, err)
+	assert.Equal(t, int64(42), id)
 }
 
-func TestChannelBlockingDefault(t *testing.T) {
+func TestTickWithIDReturnsMultipleIDs(t *testing.T) {
 	t.Parallel()
 	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
-		newMockMessage(2, "kind-b"),
-		newMockMessage(3, "kind-c"),
-		newMockMessage(4, "kind-d"),
-		newMockMessage(5, "kind-e"),
-	}
-	w := newTestWatch(messages, []error{nil, nil, nil, nil, nil, context.Canceled})
-
-	ctx := t.Context()
-	ch := w.Channel(ctx, 1)
-	var received []v1.Envelope
-	for env := range ch {
-		received = append(received, env)
-	}
-
-	require.Len(t, received, 5)
-	assert.Equal(t, int64(1), received[0].ID)
-	assert.Equal(t, int64(5), received[4].ID)
-}
-
-func TestChannelNonBlockingDropsEvents(t *testing.T) {
-	t.Parallel()
-	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
-		newMockMessage(2, "kind-b"),
-		newMockMessage(3, "kind-c"),
-		newMockMessage(4, "kind-d"),
-		newMockMessage(5, "kind-e"),
-	}
-	w := newTestWatch(messages, []error{nil, nil, nil, nil, nil, context.Canceled})
-
-	ctx := t.Context()
-	ch := w.Channel(ctx, 1, WithNonBlocking())
-	// Give producer time to start and potentially drop events
-	time.Sleep(100 * time.Millisecond)
-	var received []v1.Envelope
-	timeout := time.After(200 * time.Millisecond)
-	done := false
-	for !done {
-		select {
-		case env, ok := <-ch:
-			if !ok {
-				done = true
-			} else {
-				received = append(received, env)
-			}
-		case <-timeout:
-			done = true
-		}
-	}
-
-	require.Less(t, len(received), 5)
-}
-
-func TestEventsYieldsEvents(t *testing.T) {
-	t.Parallel()
-	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
-		newMockMessage(2, "kind-b"),
-		newMockMessage(3, "kind-c"),
+		newMockMessage(10, "kind-a"),
+		newMockMessage(20, "kind-b"),
+		newMockMessage(30, "kind-c"),
 	}
 	w := newTestWatch(messages, []error{nil, nil, nil, context.Canceled})
 
 	ctx := t.Context()
-	var received []v1.Envelope
-	for env, err := range w.Events(ctx) {
-		if err != nil {
-			break
-		}
-		received = append(received, env)
-	}
+	id1, err := w.TickWithID(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(10), id1)
 
-	require.Len(t, received, 3)
-	assert.Equal(t, int64(1), received[0].ID)
-	assert.Equal(t, "kind-a", received[0].Kind)
-	assert.Equal(t, int64(2), received[1].ID)
-	assert.Equal(t, "kind-b", received[1].Kind)
-	assert.Equal(t, int64(3), received[2].ID)
-	assert.Equal(t, "kind-c", received[2].Kind)
+	id2, err := w.TickWithID(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(20), id2)
+
+	id3, err := w.TickWithID(ctx)
+	require.NoError(t, err)
+	assert.Equal(t, int64(30), id3)
 }
 
-func TestEventsErrorTerminatesIteration(t *testing.T) {
+func TestTickWithIDHandlerErrorReturnsZeroID(t *testing.T) {
 	t.Parallel()
-	expectedErr := errors.New("test error")
-	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
+	expectedErr := errors.New("handler failed")
+	mock := &mockWatchInternal{
+		messages: []*ipc.QueryOut{newMockMessage(99, "kind-a")},
+		errors:   []error{nil},
 	}
-	w := newTestWatch(messages, []error{nil, expectedErr})
+	w := &Watch{
+		handlers: &handlers{
+			registered: []v1.OnStreamQueryResult{
+				func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
+					return expectedErr
+				},
+			},
+		},
+		wirePump: mock,
+	}
 
 	ctx := t.Context()
-	var received []v1.Envelope
-	var finalErr error
-	for env, err := range w.Events(ctx) {
-		if err != nil {
-			finalErr = err
-			break
-		}
-		received = append(received, env)
-	}
+	id, err := w.TickWithID(ctx)
 
-	require.Len(t, received, 1)
-	assert.Equal(t, int64(1), received[0].ID)
-	assert.Equal(t, expectedErr, finalErr)
+	require.ErrorIs(t, err, expectedErr)
+	assert.Equal(t, int64(0), id)
 }
 
-func TestEventsContextCancellation(t *testing.T) {
+func TestTickWithIDDispatchesToHandler(t *testing.T) {
 	t.Parallel()
-	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
-		newMockMessage(2, "kind-b"),
+	messages := []*ipc.QueryOut{newMockMessage(55, "ItemUpdated")}
+	var receivedEnvelope v1.Envelope
+	mock := &mockWatchInternal{
+		messages: messages,
+		errors:   []error{nil, context.Canceled},
 	}
-	w := newTestWatch(messages, []error{nil, nil, context.Canceled})
-
-	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
-	defer cancel()
-
-	var received []v1.Envelope
-	for env, err := range w.Events(ctx) {
-		if err != nil {
-			break
-		}
-		received = append(received, env)
+	w := &Watch{
+		handlers: &handlers{
+			registered: []v1.OnStreamQueryResult{
+				func(_ context.Context, e v1.Envelope, _ json.RawMessage) error {
+					receivedEnvelope = e
+					return nil
+				},
+			},
+		},
+		wirePump: mock,
 	}
-
-	require.Len(t, received, 2)
-}
-
-func TestEventsEarlyBreak(t *testing.T) {
-	t.Parallel()
-	messages := []*ipc.QueryOut{
-		newMockMessage(1, "kind-a"),
-		newMockMessage(2, "kind-b"),
-		newMockMessage(3, "kind-c"),
-	}
-	w := newTestWatch(messages, []error{nil, nil, nil, context.Canceled})
 
 	ctx := t.Context()
-	var received []v1.Envelope
-	for env, err := range w.Events(ctx) {
-		if err != nil {
-			break
-		}
-		received = append(received, env)
-		if len(received) >= 2 {
-			break
-		}
+	id, err := w.TickWithID(ctx)
+
+	require.NoError(t, err)
+	assert.Equal(t, int64(55), id)
+	assert.Equal(t, int64(55), receivedEnvelope.ID)
+	assert.Equal(t, "ItemUpdated", receivedEnvelope.Kind)
+}
+
+// --- Pump tests ---
+
+func TestPumpReturnsHandlerError(t *testing.T) {
+	t.Parallel()
+	expectedErr := errors.New("handler failed")
+	mock := &mockWatchInternal{
+		messages: []*ipc.QueryOut{newMockMessage(1, "kind-a")},
+		errors:   []error{nil, context.Canceled},
+	}
+	w := &Watch{
+		handlers: &handlers{
+			registered: []v1.OnStreamQueryResult{
+				func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
+					return expectedErr
+				},
+			},
+		},
+		wirePump: mock,
 	}
 
-	require.Len(t, received, 2)
-	assert.Equal(t, int64(1), received[0].ID)
-	assert.Equal(t, int64(2), received[1].ID)
+	err := w.Pump(t.Context())
+	require.ErrorIs(t, err, expectedErr)
+}
+
+func TestPumpReturnsWireError(t *testing.T) {
+	t.Parallel()
+	expectedErr := errors.New("wire failed")
+	mock := &mockWatchInternal{
+		messages: []*ipc.QueryOut{},
+		errors:   []error{expectedErr},
+	}
+	w := &Watch{
+		handlers: &handlers{
+			registered: []v1.OnStreamQueryResult{
+				func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
+					return nil
+				},
+			},
+		},
+		wirePump: mock,
+	}
+
+	err := w.Pump(t.Context())
+	require.ErrorIs(t, err, expectedErr)
+}
+
+func TestPumpProcessesAllEvents(t *testing.T) {
+	t.Parallel()
+	var mu sync.Mutex
+	count := 0
+	mock := &mockWatchInternal{
+		messages: []*ipc.QueryOut{
+			newMockMessage(10, "kind-a"),
+			newMockMessage(20, "kind-b"),
+			newMockMessage(30, "kind-c"),
+		},
+		errors: []error{nil, nil, nil, context.Canceled},
+	}
+	w := &Watch{
+		handlers: &handlers{
+			registered: []v1.OnStreamQueryResult{
+				func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
+					mu.Lock()
+					count++
+					mu.Unlock()
+					return nil
+				},
+			},
+		},
+		wirePump: mock,
+	}
+
+	err := w.Pump(t.Context())
+	require.ErrorIs(t, err, context.Canceled)
+
+	mu.Lock()
+	defer mu.Unlock()
+	assert.Equal(t, 3, count, "all three events should be processed before Pump stops")
+}
+
+func TestPumpStopsOnContextCancel(t *testing.T) {
+	t.Parallel()
+	ready := make(chan struct{})
+	unblock := make(chan struct{})
+	mock := &blockingMockWatchInternal{
+		ready:   ready,
+		unblock: unblock,
+	}
+	w := &Watch{
+		handlers: &handlers{
+			registered: []v1.OnStreamQueryResult{
+				func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
+					return nil
+				},
+			},
+		},
+		wirePump: mock,
+	}
+
+	ctx, cancel := context.WithCancel(t.Context())
+	done := make(chan error, 1)
+	go func() {
+		done <- w.Pump(ctx)
+	}()
+
+	// Wait for the pump to enter Tick, then cancel
+	<-ready
+	cancel()
+	close(unblock)
+
+	select {
+	case err := <-done:
+		require.ErrorIs(t, err, context.Canceled)
+	case <-time.After(2 * time.Second):
+		t.Fatal("Pump did not stop after context cancellation")
+	}
 }

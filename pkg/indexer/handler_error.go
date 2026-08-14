@@ -1,5 +1,7 @@
 package indexer
 
+import "errors"
+
 // HandlerError is returned by handlers to indicate error semantics.
 // Handlers can implement this interface to control pump behavior on errors.
 type HandlerError interface {
@@ -29,11 +31,13 @@ func (e *RecoverableError) Recoverable() bool {
 
 // IsRecoverable checks if an error implements HandlerError and is recoverable.
 // Returns false for plain errors or HandlerError with Recoverable() == false.
+// Uses errors.As to traverse wrapped errors.
 func IsRecoverable(err error) bool {
 	if err == nil {
 		return false
 	}
-	if handlerErr, ok := err.(HandlerError); ok {
+	var handlerErr HandlerError
+	if errors.As(err, &handlerErr) {
 		return handlerErr.Recoverable()
 	}
 	return false

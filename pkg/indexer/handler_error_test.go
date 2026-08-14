@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -45,5 +46,19 @@ func TestHandlerError_Interface(t *testing.T) {
 		t.Parallel()
 		err := &RecoverableError{Err: errors.New("test message")}
 		assert.Equal(t, "test message", err.Error())
+	})
+
+	t.Run("WrappedRecoverableErrorIsRecoverable", func(t *testing.T) {
+		t.Parallel()
+		inner := &RecoverableError{Err: errors.New("transient")}
+		wrapped := fmt.Errorf("wrapped: %w", inner)
+		assert.True(t, IsRecoverable(wrapped))
+	})
+
+	t.Run("WrappedNonRecoverableErrorIsNotRecoverable", func(t *testing.T) {
+		t.Parallel()
+		inner := errors.New("plain")
+		wrapped := fmt.Errorf("wrapped: %w", inner)
+		assert.False(t, IsRecoverable(wrapped))
 	})
 }

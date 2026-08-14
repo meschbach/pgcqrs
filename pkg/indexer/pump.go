@@ -3,7 +3,6 @@ package indexer
 import (
 	"context"
 	"errors"
-	"fmt"
 	"sync/atomic"
 	"time"
 
@@ -248,7 +247,7 @@ func (p *Pump[L]) runWatchLoop(ctx context.Context, watch *query2.Watch, keepAli
 				continue
 			}
 			// Any other heartbeat error is a lock loss
-			return fmt.Errorf("heartbeat: %w", err)
+			return &RecoverableError{Err: err}
 		}
 	}
 }

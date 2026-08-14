@@ -3,9 +3,11 @@ package indexer
 import (
 	"context"
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -39,6 +41,25 @@ func TestPump_HeartbeatBehavior(t *testing.T) {
 
 		err = runPump(t, pump, "domain", "stream", 1*time.Second)
 		assert.Error(t, err)
+	})
+
+	t.Run("HeartbeatLockLossIsRecoverable", func(t *testing.T) {
+		t.Parallel()
+		// Verify that a LockNotHeldError wrapped in RecoverableError is classified as recoverable
+		lockErr := &v1.LockNotHeldError{Consumer: "test", Holder: "test", Domain: "d", Stream: "s"}
+		recoverableErr := &RecoverableError{Err: lockErr}
+
+		// Direct check
+		assert.True(t, IsRecoverable(recoverableErr))
+
+		// Wrapped check (simulating what happens in pump.go:250)
+		wrappedErr := fmt.Errorf("heartbeat failed: %w", recoverableErr)
+		assert.True(t, IsRecoverable(wrappedErr))
+
+		// Verify the underlying error is accessible via errors.As
+		var lockNotHeld *v1.LockNotHeldError
+		require.ErrorAs(t, recoverableErr, &lockNotHeld)
+		assert.Equal(t, "test", lockNotHeld.Consumer)
 	})
 }
 

@@ -66,20 +66,20 @@
 ## 7. Views gRPC Proto & Generated Code
 
 - [x] 7.1 Create `pkg/indexer/views/grpc/views.proto` with ViewProjectionStore and ViewProjectionConsumer services
-- [x] 7.2 Define ApplyMutations, GetEntity, GetVersion, WatchChanges RPCs and messages
+- [x] 7.2 Define ApplyMutations, GetEntity, Version, WatchChanges RPCs and messages
 - [x] 7.3 Generate Go code from proto (protoc)
 - [x] 7.4 Verify generated code compiles
 
 ## 8. Views gRPC Server Handlers (pgcqrs service)
 
 - [x] 8.1 Implement `viewsStoreHandler` for ViewProjectionStore: ApplyMutations (atomic PG transaction), GetEntity
-- [x] 8.2 Implement `viewsConsumerHandler` for ViewProjectionConsumer: GetEntity, GetVersion, WatchChanges
+- [x] 8.2 Implement `viewsConsumerHandler` for ViewProjectionConsumer: GetEntity, Version, WatchChanges
 - [x] 8.3 Implement PGStore internals: Upsert (INSERT ON CONFLICT UPDATE), Delete, Get with normalized kind/projection tables
 - [x] 8.4 Implement UntilVersion: subscribe to Notifier channel, check version on each change event, return on target reached or timeout
 - [x] 8.5 Implement WatchChanges: subscribe to bus, read from store, stream to client
 - [x] 8.6 Register ViewProjectionStore and ViewProjectionConsumer on existing grpc.Server in `grpcPort.Serve()`
 - [x] 8.7 Write unit tests for ViewProjectionStore: ApplyMutations, GetEntity with in-memory PG mock
-- [x] 8.8 Write unit tests for ViewProjectionConsumer: GetEntity, GetVersion, WatchChanges
+- [x] 8.8 Write unit tests for ViewProjectionConsumer: GetEntity, Version, WatchChanges
 
 ## 9. Database Migration
 
@@ -92,11 +92,13 @@
 
 - [x] 10.1 Implement `Connect(ctx, address, proj)`: build GrpcWire from gRPC conn, build Transport from same conn, EnsureStream, build *v1.Stream, build RemoteStore, Notifier, ViewsIndexer (with stream), Pump; start Pump in goroutine
 - [x] 10.2 Implement `ConnectMemory(ctx, transport, proj)`: build MemoryWire from transport, EnsureStream, build *v1.Stream, build MemoryStore, Notifier, ViewsIndexer (with stream), Pump; start Pump in goroutine
+- [ ] 10.2a Rework entry point to `With(ctx, sys *v1.System, proj, ...ClientOption)`: extract the system's transport, dispatch via `v1.ViewFeature` connectivity to `newGRPCClient`/`newMemoryClient` sharing a `newClient` scaffold; return `ProjectionClient`. Remove `Connect`, `ConnectMemory`, `ConnectFromConfig`; rename `ConnectOption` to `ClientOption`. Connection lifecycle moves to `*v1.System` (`System.Close()`).
 - [x] 10.3 Implement `Client.Get(ctx, kind, key, opts)`: call ViewProjectionConsumer gRPC GetEntity
-- [x] 10.4 Implement `Client.Version()`: call ViewProjectionConsumer gRPC GetVersion
+- [x] 10.4 Implement `Client.Version()`: call ViewProjectionConsumer gRPC Version
 - [x] 10.5 Implement `Client.OnChange(fn)`: subscribe to local notifier (or ViewProjectionConsumer WatchChanges)
 - [x] 10.6 Implement `Client.Close()`: stop Pump, release lock, close connections
 - [x] 10.7 Write unit tests for Connect/ConnectMemory: full lifecycle with in-memory transport
+- [x] 10.7a Migrate unit tests to `With`: `setupClientWithEvents` and all call sites use `With(ctx, v1.NewSystem(transport), proj)`; `TestConnectMemoryCreatesClient` becomes `TestWithMemorySystem`
 - [x] 10.8 Write unit tests for Client.Get with version constraints: After (satisfied/stale), UntilVersion (satisfied/timeout)
 
 ## 11. Integration Tests
@@ -112,7 +114,8 @@
 ## 12. Documentation & Examples
 
 - [x] 12.1 Write godoc for all public types: Key, Entity, Upsert, Delete, ReduceResult, ReduceContext, Result, Status, Change, Projection, Client, ViewsIndexer, Store
-- [x] 12.2 Write godoc for all public methods: OnKind, Connect, ConnectMemory, Get, Version, OnChange, Close, Query
+- [x] 12.2 Write godoc for all public methods: OnKind, Get, Version, OnChange, Close, Query
+- [x] 12.2a Update godoc/README/design for `With` and `ProjectionClient`; remove `Connect`/`ConnectMemory`/`ConnectFromConfig` references
 - [x] 12.3 Write godoc for core indexer types: Pump, Indexer, Wire, Lock
 - [x] 12.4 Create example `examples/view-projection/`: basic inventory projection with typed handlers
 - [x] 12.5 Create example `examples/view-projection-versioned/`: consumer using Get with UntilVersion

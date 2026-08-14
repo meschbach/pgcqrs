@@ -23,11 +23,11 @@ Developer experience is a first-class concern — the API is designed for fast p
 - Unified Get with version constraints: single method returning `(entity, result, error)` with `After` and `UntilVersion` options
 - Version-aware consistency: `Result.Status` explicitly indicates whether version constraints were met
 - `ViewProjectionStore` gRPC service: narrow KV storage service (ApplyMutations, GetEntity) used by the Pump
-- `ViewProjectionConsumer` gRPC service: read API (GetEntity, GetVersion, WatchChanges) for webapps and downstream indexers
+- `ViewProjectionConsumer` gRPC service: read API (GetEntity, Version, WatchChanges) for webapps and downstream indexers
 - Storage in pgcqrs database for durability
 - Resumable projections via After(position)
 - Synchronous execution model for consumer lock coordination
-- Client framework (`views.Connect`) transparently handles connection and lifecycle
+- Client framework (`views.With`) transparently handles connection and lifecycle
 - Testable with in-memory transport and store
 - Composition: embedding indexer reads views store for projected entity state
 - Comprehensive documentation: godoc, examples, README
@@ -89,7 +89,7 @@ The Pump runs in the developer's binary, not in the pgcqrs service process. It c
    │  │    └─ store.Persist() ──│──│─────────►│  │                       │
   │  │ 7. Wire.Heartbeat ─────│──│─────────►│  └─ ViewProjectionConsumer│
   │  │ 8. notifier.Notify     │  │ (local)  │     ├─ GetEntity         │
-  │  │ 9. goto 5              │  │          │     ├─ GetVersion        │
+  │  │ 9. goto 5              │  │          │     ├─ Version           │
   │  └────────────────────────┘  │          │     └─ WatchChanges      │
   └──────────────────────────────┘          └──────────────────────────┘
 ```
@@ -197,7 +197,7 @@ This keeps the core Pump minimal and lets each indexer type own its storage and 
 
 **Decision: Notifier is local, one per projection, owned by Connect**
 
-The `Notifier` is an in-process callback registry that fires when mutations are applied. `Connect` and `ConnectMemory` create one `Notifier` per projection, wire it to both the `ViewsIndexer` (for firing) and the `Client` (for subscribing via `OnChange` and `UntilVersion`). The Notifier lives for the lifetime of the `Client` — `Client.Close()` stops the Pump, which stops firing. Remote consumers (webapps) use `ViewProjectionConsumer.WatchChanges` gRPC instead of the local Notifier.
+The `Notifier` is an in-process callback registry that fires when mutations are applied. `With` creates one `Notifier` per projection, wire it to both the `ViewsIndexer` (for firing) and the `Client` (for subscribing via `OnChange` and `UntilVersion`). The Notifier lives for the lifetime of the `Client` — `Client.Close()` stops the Pump, which stops firing. Remote consumers (webapps) use `ViewProjectionConsumer.WatchChanges` gRPC instead of the local Notifier.
 
 **Decision: OnKind[T] — typed per-kind handler registration**
 
@@ -401,13 +401,13 @@ The `ViewProjectionConsumer` gRPC service provides the external read path for we
 ```protobuf
 service ViewProjectionConsumer {
     rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
-    rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
+    rpc Version(VersionRequest) returns (VersionResponse);
     rpc WatchChanges(WatchChangesRequest) returns (stream WatchChangesResponse);
 }
 ```
 
 - `GetEntity`: reads entity state with optional version constraints (After, UntilVersion)
-- `GetVersion`: returns the projection version (from `consumer_positions`)
+- `Version`: returns the projection version (from `consumer_positions`)
 - `WatchChanges`: streams change notifications (subscribes to in-process bus)
 
 **Decision: Both gRPC services register on existing server, no new config**
@@ -560,6 +560,10 @@ type Store interface {
 
 The `Get` method provides the read path (used by `ReduceContext.Get` and by other indexers for composition). The `Persist` method provides the write path (used by the views indexer's handlers during event processing).
 
+**Decision: Persist always advances the projection version**
+
+Every processed event advances the projection version, even when the handler returns no mutations (`nil` result). `Persist` treats a `nil` result as an empty result: it applies zero mutations but still records the position. `PGStore.Persist` writes the `consumer_positions` row in the same transaction as the mutations (guarded so a stale event ID never regresses the position), keeping entity mutations and the projection version atomic. The in-process `Notifier` also fires for empty changes, so observers wake up with the new version even when no entity changed. This guarantees `Version()`/`UntilVersion()` reflect how far the projection has consumed the stream, independent of whether the events mutated state.
+
 **Decision: Composition — indexers read each other's stores**
 
 The views Store's `Get` method is available to any indexer that needs projected entity state. The embedding indexer holds a `views.Store` (or just the `Get` reader) to access projected state for generating embeddings:
@@ -609,7 +613,7 @@ The product is both (a) a set of services and (b) a set of APIs for interacting 
 
 **Decision: EnsureStream before Pump starts**
 
-`Connect` and `ConnectMemory` call `EnsureStream` during setup, before building the `*v1.Stream` for the ViewsIndexer. This guarantees the domain and stream exist before Watch is called, preventing confusing errors. The Pump itself does not call `EnsureStream` — it operates through Wire, which has no EnsureStream method.
+`With` calls `EnsureStream` during setup, before building the `*v1.Stream` for the ViewsIndexer. This guarantees the domain and stream exist before Watch is called, preventing confusing errors. The Pump itself does not call `EnsureStream` — it operates through Wire, which has no EnsureStream method.
 
 **Decision: Indexer unmarshals raw JSON into typed events for OnKind[T]**
 
@@ -644,7 +648,7 @@ pkg/indexer/
 │   ├── store.go         # Store interface (reader + writer)
 │   ├── remote.go        # RemoteStore (gRPC → pgcqrs ViewProjectionStore)
 │   ├── memory.go        # MemoryStore (for tests)
-│   ├── client.go        # Connect, ConnectMemory, Get, Version, OnChange
+│   ├── client.go        # With, Get, Version, OnChange
 │   ├── result.go        # Result, Status types
 │   ├── change.go        # Change type
 │   └── grpc/
@@ -756,7 +760,7 @@ service ViewProjectionStore {
 // ViewProjectionConsumer serves entity state to remote clients (webapps, downstream indexers).
 service ViewProjectionConsumer {
     rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
-    rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
+    rpc Version(VersionRequest) returns (VersionResponse);
     rpc WatchChanges(WatchChangesRequest) returns (stream WatchChangesResponse);
 }
 
@@ -823,11 +827,13 @@ message GetEntityResponse {
 
 // --- ViewProjectionConsumer messages ---
 
-message GetVersionRequest {
+message VersionRequest {
     string projection = 1;
+    string domain = 2;
+    string stream = 3;
 }
 
-message GetVersionResponse {
+message VersionResponse {
     int64 version = 1;
 }
 
@@ -974,26 +980,25 @@ func (n *Notifier) Notify(c Change)
 func (n *Notifier) OnChange(fn func(Change))
 ```
 
-One `Notifier` per projection, created by `Connect`/`ConnectMemory`. `ViewsIndexer` calls `Notify` after each apply. `Client.OnChange` and `UntilVersion` subscribe via `OnChange`.
+One `Notifier` per projection, created by `With`. `ViewsIndexer` calls `Notify` after each apply. `Client.OnChange` and `UntilVersion` subscribe via `OnChange`.
 
 ### Client Framework (developer's process)
 
 ```go
-// Connect to pgcqrs service, build Wire + Transport + Pump, start processing
-func Connect(ctx context.Context, address string, proj *Projection, opts ...ConnectOption) (*Client, error)
+// With runs a projection against the given system. The system's transport
+// determines whether the projection is served in-process (memory) or remotely
+// (gRPC); other transports return an error.
+func With(ctx context.Context, sys *v1.System, proj *Projection, opts ...ClientOption) (ProjectionClient, error)
 
-// Connect with in-memory transport (for testing)
-func ConnectMemory(ctx context.Context, transport v1.Transport, proj *Projection) (*Client, error)
-
-// Client handles lifecycle and exposes query API
-type Client struct { /* ... */ }
-func (c *Client) Get(ctx context.Context, kind string, key Key, opts ...GetOption) (*Entity, *Result, error)
-func (c *Client) Version() (int64, error)
-func (c *Client) OnChange(fn func(Change))
-func (c *Client) Close() error
+// ProjectionClient handles lifecycle and exposes the query API
+type ProjectionClient interface { /* Get, Version, OnChange, WaitForState, Close */ }
+func (c *Client[L]) Get(ctx context.Context, kind string, key Key, opts ...GetOption) (*Entity, *Result, error)
+func (c *Client[L]) Version(ctx context.Context) (int64, error)
+func (c *Client[L]) OnChange(fn func(Change)) func()
+func (c *Client[L]) Close() error
 ```
 
-`Connect` and `ConnectMemory` bridge Wire and Transport from the same underlying connection. `Connect` builds a `GrpcWire` for the Pump and a `v1.Transport` for the ViewsIndexer from the same gRPC connection. `ConnectMemory` builds a `MemoryWire` for the Pump and uses the provided `Transport` for the ViewsIndexer. Both call `EnsureStream` and construct the `*v1.Stream` before building the ViewsIndexer.
+`With` extracts the `*v1.System`'s transport and probes it for `v1.ViewFeature` connectivity. A gRPC connection selects `newGRPCClient` (builds a `GrpcWire` for the Pump, a `RemoteStore`/`RemoteReader` for storage and reads — all from the same gRPC connection). In-process connectivity selects `newMemoryClient` (builds a `MemoryWire` for the Pump, a `MemoryStore`/`MemoryReader` backed by the transport). Both paths share a `newClient` scaffold that calls `EnsureStream` and constructs the `*v1.Stream` before building the ViewsIndexer. The connection lifecycle stays on the caller's `*v1.System` — `System.Close()` releases the transport, so callers should `defer sys.Close()`.
 
 ### Options
 

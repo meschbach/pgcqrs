@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/meschbach/pgcqrs/pkg/indexer"
 	"github.com/meschbach/pgcqrs/pkg/indexer/views"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
@@ -74,17 +75,17 @@ func TestMultipleProjectionsOnSameStream(t *testing.T) {
 	)
 
 	// Connect both projections
-	client1, err := connectProjection(harness.ctx, t, harness, proj1)
+	client1, err := connectProjection(harness.ctx, harness, proj1)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, client1.Close())
-	}()
+	t.Cleanup(func() { closeClient(t, client1) })
 
-	client2, err := connectProjection(harness.ctx, t, harness, proj2)
+	client2, err := connectProjection(harness.ctx, harness, proj2)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, client2.Close())
-	}()
+	t.Cleanup(func() { closeClient(t, client2) })
+
+	// Wait for both projections to reach Watching state
+	waitForState(t, client1, indexer.PumpStateWatching)
+	waitForState(t, client2, indexer.PumpStateWatching)
 
 	// Submit events
 	stream := harness.system.MustStream(harness.ctx, harness.appName, harness.streamName)
@@ -135,11 +136,12 @@ func TestConcurrentReadersDuringUpdates(t *testing.T) {
 		}),
 	)
 
-	client, err := connectProjection(harness.ctx, t, harness, proj)
+	client, err := connectProjection(harness.ctx, harness, proj)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, client.Close())
-	}()
+	t.Cleanup(func() { closeClient(t, client) })
+
+	// Wait for projection to reach Watching state
+	waitForState(t, client, indexer.PumpStateWatching)
 
 	// Start concurrent readers
 	var wg sync.WaitGroup

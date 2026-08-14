@@ -5,8 +5,8 @@ import (
 	"fmt"
 	"time"
 
-	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/meschbach/pgcqrs/pkg/indexer/views"
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 )
 
 const app = "example.view-projection"
@@ -96,40 +96,22 @@ func main() {
 	)
 
 	cfg := v1.NewConfig().LoadEnv()
-	
-	var client *views.Client
-	var sys *v1.System
-	var err error
-	
-	switch cfg.TransportType {
-	case v1.TransportTypeGRPC:
-		client, err = views.Connect(ctx, cfg.ServiceURL, proj)
-		if err != nil {
-			panic(err)
-		}
-		// For gRPC, we need a separate system to submit events
-		sys, err = cfg.SystemFromConfig()
-		if err != nil {
-			panic(err)
-		}
-	case v1.TransportTypeMemory:
-		sys, err = cfg.SystemFromConfig()
-		if err != nil {
-			panic(err)
-		}
-		client, err = views.ConnectMemory(ctx, sys.Transport, proj)
-		if err != nil {
-			panic(err)
-		}
-	case v1.TransportTypeHTTP:
-		panic("view projections require gRPC transport; HTTP transport is not supported")
-	default:
-		panic(fmt.Sprintf("unsupported transport type: %s", cfg.TransportType))
+
+	sys, err := cfg.SystemFromConfig()
+	if err != nil {
+		panic(err)
+	}
+	defer sys.Close()
+
+	client, err := views.With(ctx, sys, proj)
+	if err != nil {
+		panic(err)
 	}
 	defer client.Close()
 
-	client.OnChange(func(c views.Change) {
+	client.OnChange(func(_ context.Context, c views.Change) error {
 		fmt.Printf("Change notification: version %d\n", c.Version)
+		return nil
 	})
 
 	s, err := sys.Stream(ctx, app, stream)

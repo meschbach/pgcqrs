@@ -49,7 +49,9 @@ func (h *StoreHandler) ApplyMutations(ctx context.Context, req *vgrpc.ApplyMutat
 		return nil, err
 	}
 	if h.registry != nil {
-		h.registry.Notify(streamID, *change)
+		if err := h.registry.Notify(ctx, streamID, req.Projection, *change); err != nil {
+			return nil, err
+		}
 	}
 
 	return h.buildApplyResponse(change)
@@ -86,14 +88,16 @@ func (h *StoreHandler) buildApplyResponse(change *views.Change) (*vgrpc.ApplyMut
 }
 
 // GetEntity retrieves an entity by kind and key.
-func (h *StoreHandler) GetEntity(ctx context.Context, req *vgrpc.GetEntityRequest) (*vgrpc.GetEntityResponse, error) {
+// This is the write-path service: it serves plain snapshot reads only and never
+// waits on version. Version-constrained reads are served by ViewProjectionConsumer.
+func (h *StoreHandler) GetEntity(ctx context.Context, req *vgrpc.StoreGetEntityRequest) (*vgrpc.GetEntityResponse, error) {
 	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
 	entity, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
 	if err != nil {
 		return nil, err
 	}
 	if entity == nil {
-		return &vgrpc.GetEntityResponse{Status: 1}, nil // StatusNotFound
+		return &vgrpc.GetEntityResponse{Status: vgrpc.GetStatus_GET_STATUS_NOT_FOUND}, nil
 	}
 	return &vgrpc.GetEntityResponse{
 		Entity: &vgrpc.Entity{
@@ -102,6 +106,6 @@ func (h *StoreHandler) GetEntity(ctx context.Context, req *vgrpc.GetEntityReques
 			Value:   entity.Value,
 			Version: entity.Version,
 		},
-		Status: 0, // StatusOK
+		Status: vgrpc.GetStatus_GET_STATUS_OK,
 	}, nil
 }

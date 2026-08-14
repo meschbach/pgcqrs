@@ -4,6 +4,8 @@ package views
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"iter"
 	"time"
 
@@ -32,83 +34,91 @@ func NewConsumerHandler(store *views.PGStore, registry *NotifierRegistry, positi
 	}
 }
 
-// GetEntity retrieves a projected entity by kind and key.
+// GetEntity retrieves a projected entity by kind and key, resolving version
+// constraints. UntilVersion waits server-side via the notifier registry.
 func (h *ConsumerHandler) GetEntity(ctx context.Context, req *vgrpc.GetEntityRequest) (*vgrpc.GetEntityResponse, error) {
 	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
 	entity, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
 	if err != nil {
 		return nil, err
 	}
-	if entity == nil {
-		return &vgrpc.GetEntityResponse{Status: 1}, nil // StatusNotFound
-	}
 
-	resp := &vgrpc.GetEntityResponse{
-		Entity: &vgrpc.Entity{
-			Kind:    entity.Kind,
-			Key:     entity.Key.Parts(),
-			Value:   entity.Value,
-			Version: entity.Version,
-		},
-		Status: 0, // StatusOK
+	entity, status, err := h.resolveGet(ctx, req, id, entity)
+	if err != nil {
+		return nil, err
 	}
+	return buildGetResponse(entity, status)
+}
 
-	// Handle version constraints
+func (h *ConsumerHandler) resolveGet(ctx context.Context, req *vgrpc.GetEntityRequest, id views.ProjectionIdentity, entity *views.Entity) (*views.Entity, views.Status, error) {
 	if constraint := req.GetUntilVersion(); constraint != nil {
-		if entity.Version >= constraint.Version {
-			return resp, nil
-		}
-		return h.waitForVersion(ctx, req, id, constraint, resp)
+		return h.resolveUntilVersion(ctx, req, id, entity, constraint)
 	}
 
 	if constraint := req.GetAfter(); constraint != nil {
-		if entity.Version < constraint.Version {
-			resp.Status = 2 // StatusStale
+		if entity == nil {
+			return nil, views.StatusNotFound, nil
 		}
+		if entity.Version < constraint.Version {
+			return entity, views.StatusStale, nil
+		}
+		return entity, views.StatusOK, nil
 	}
 
-	return resp, nil
+	if entity == nil {
+		return nil, views.StatusNotFound, nil
+	}
+	return entity, views.StatusOK, nil
 }
 
-func (h *ConsumerHandler) waitForVersion(ctx context.Context, req *vgrpc.GetEntityRequest, id views.ProjectionIdentity, constraint *vgrpc.UntilVersionConstraint, resp *vgrpc.GetEntityResponse) (*vgrpc.GetEntityResponse, error) {
+func (h *ConsumerHandler) resolveUntilVersion(ctx context.Context, req *vgrpc.GetEntityRequest, id views.ProjectionIdentity, entity *views.Entity, constraint *vgrpc.UntilVersionConstraint) (*views.Entity, views.Status, error) {
+	if entity != nil && entity.Version >= constraint.Version {
+		return entity, views.StatusOK, nil
+	}
+
 	streamID, err := h.store.ResolveStreamID(ctx, req.Domain, req.Stream)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 
-	timeout := time.Duration(constraint.TimeoutMs) * time.Millisecond
-	timer := time.NewTimer(timeout)
-	defer timer.Stop()
-
-	ch := make(chan views.Change, 16)
-	unsub := h.registry.OnChange(streamID, func(c views.Change) {
-		select {
-		case ch <- c:
-		default:
-		}
-	})
-	defer unsub()
-
-	for {
-		select {
-		case <-timer.C:
-			resp.Status = 3 // StatusTimeout
-			return resp, nil
-		case c := <-ch:
-			if c.Version >= constraint.Version {
-				return h.refetchEntity(ctx, id, req, resp)
-			}
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
+	wctx, cancel := context.WithTimeout(ctx, time.Duration(constraint.TimeoutMs)*time.Millisecond)
+	reached, err := h.registry.WaitForVersion(wctx, streamID, req.Projection, constraint.Version)
+	cancel()
+	if !reached {
+		return h.untilTimeoutResult(ctx, req, id, err)
 	}
+
+	current, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
+	if err != nil {
+		return nil, 0, err
+	}
+	if current == nil {
+		return nil, views.StatusNotFound, nil
+	}
+	return current, views.StatusOK, nil
 }
 
-func (h *ConsumerHandler) refetchEntity(ctx context.Context, id views.ProjectionIdentity, req *vgrpc.GetEntityRequest, resp *vgrpc.GetEntityResponse) (*vgrpc.GetEntityResponse, error) {
-	entity, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
+// untilTimeoutResult resolves the case where the wait ended without reaching the
+// target version. A wait that only exhausted its own deadline returns the current
+// entity with StatusTimeout; any other end maps to the wait error.
+func (h *ConsumerHandler) untilTimeoutResult(ctx context.Context, req *vgrpc.GetEntityRequest, id views.ProjectionIdentity, waitErr error) (*views.Entity, views.Status, error) {
+	if !errors.Is(waitErr, context.DeadlineExceeded) || ctx.Err() != nil {
+		return nil, 0, waitErr
+	}
+	current, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
+	if err != nil {
+		return nil, 0, err
+	}
+	return current, views.StatusTimeout, nil
+}
+
+// buildGetResponse maps a domain entity and status to the wire response.
+func buildGetResponse(entity *views.Entity, status views.Status) (*vgrpc.GetEntityResponse, error) {
+	protoStatus, err := protoFromStatus(status)
 	if err != nil {
 		return nil, err
 	}
+	resp := &vgrpc.GetEntityResponse{Status: protoStatus}
 	if entity != nil {
 		resp.Entity = &vgrpc.Entity{
 			Kind:    entity.Kind,
@@ -117,18 +127,33 @@ func (h *ConsumerHandler) refetchEntity(ctx context.Context, id views.Projection
 			Version: entity.Version,
 		}
 	}
-	resp.Status = 0 // StatusOK
 	return resp, nil
 }
 
-// GetVersion returns the current projection version.
-func (h *ConsumerHandler) GetVersion(ctx context.Context, req *vgrpc.GetVersionRequest) (*vgrpc.GetVersionResponse, error) {
+// protoFromStatus maps the domain Status to the wire GetStatus enum.
+func protoFromStatus(s views.Status) (vgrpc.GetStatus, error) {
+	switch s {
+	case views.StatusOK:
+		return vgrpc.GetStatus_GET_STATUS_OK, nil
+	case views.StatusNotFound:
+		return vgrpc.GetStatus_GET_STATUS_NOT_FOUND, nil
+	case views.StatusStale:
+		return vgrpc.GetStatus_GET_STATUS_STALE, nil
+	case views.StatusTimeout:
+		return vgrpc.GetStatus_GET_STATUS_TIMEOUT, nil
+	default:
+		return vgrpc.GetStatus(0), fmt.Errorf("unknown get status: %d", s)
+	}
+}
+
+// Version returns the current projection version.
+func (h *ConsumerHandler) Version(ctx context.Context, req *vgrpc.VersionRequest) (*vgrpc.VersionResponse, error) {
 	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
-	version, err := h.store.GetVersion(ctx, id)
+	version, err := h.store.Version(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	return &vgrpc.GetVersionResponse{Version: version}, nil
+	return &vgrpc.VersionResponse{Version: version}, nil
 }
 
 // WatchChanges streams projection changes to the client.
@@ -144,7 +169,7 @@ func (h *ConsumerHandler) WatchChanges(req *vgrpc.WatchChangesRequest, stream vg
 		return err
 	}
 
-	for change, err := range h.changeStream(ctx, streamID, afterVersion) {
+	for change, err := range h.changeStream(ctx, streamID, req.Projection, afterVersion) {
 		if err != nil {
 			return err
 		}
@@ -159,14 +184,15 @@ func (h *ConsumerHandler) WatchChanges(req *vgrpc.WatchChangesRequest, stream vg
 	return nil
 }
 
-func (h *ConsumerHandler) changeStream(ctx context.Context, streamID, afterVersion int64) iter.Seq2[views.Change, error] {
+func (h *ConsumerHandler) changeStream(ctx context.Context, streamID int64, projection string, afterVersion int64) iter.Seq2[views.Change, error] {
 	return func(yield func(views.Change, error) bool) {
 		ch := make(chan views.Change, 16)
-		unsub := h.registry.OnChange(streamID, func(c views.Change) {
+		unsub := h.registry.OnChange(streamID, projection, func(_ context.Context, c views.Change) error {
 			select {
 			case ch <- c:
 			default:
 			}
+			return nil
 		})
 		defer unsub()
 

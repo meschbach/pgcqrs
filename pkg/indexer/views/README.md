@@ -23,7 +23,7 @@ Developer's Process                        pgcqrs Service
 │  │    └─ store.Persist() ──│──│─────────►│  │                       │
 │  │ 7. Wire.Heartbeat ─────│──│─────────►│  └─ ViewProjectionConsumer│
 │  │ 8. notifier.Notify     │  │ (local)  │     ├─ GetEntity         │
-│  │ 9. goto 5              │  │          │     ├─ GetVersion        │
+│  │ 9. goto 5              │  │          │     ├─ Version           │
 │  └────────────────────────┘  │          │     └─ WatchChanges      │
 └──────────────────────────────┘          └──────────────────────────┘
 ```
@@ -59,11 +59,16 @@ proj := views.NewProjection("inventory", "items",
 
 ```go
 // In-memory (for testing)
-client, err := views.ConnectMemory(ctx, transport, proj)
+sys := v1.NewSystem(v1.NewMemoryTransport())
+defer sys.Close()
+client, err := views.With(ctx, sys, proj)
 defer client.Close()
 
-// Remote (for production)
-client, err := views.Connect(ctx, "localhost:9000", proj)
+// From config (memory, HTTP, or gRPC transports)
+cfg := v1.NewConfig().LoadEnv()
+sys, err := cfg.SystemFromConfig()
+defer sys.Close()
+client, err := views.With(ctx, sys, proj)
 defer client.Close()
 
 // Query entity state
@@ -124,11 +129,13 @@ views.ConsumerName(name string)  // override default consumer name
 ### Client
 
 ```go
-client, err := views.Connect(ctx, address, proj, ...opts)
-client, err := views.ConnectMemory(ctx, transport, proj)
+sys, err := cfg.SystemFromConfig()
+defer sys.Close()
+client, err := views.With(ctx, sys, proj, ...opts) // returns views.ProjectionClient
 entity, result, err := client.Get(ctx, kind, key, ...opts)
-version, err := client.Version()
-client.OnChange(fn func(Change))
+version, err := client.Version(ctx)
+client.OnChange(fn func(Change))                   // returns unsubscribe func
+client.WaitForState(ctx, state)
 client.Close()
 ```
 
@@ -160,11 +167,11 @@ view_projection_entries_composite  -- composite-key entities
 
 ## Transport Requirements
 
-View projections require **gRPC transport** for production use. The framework uses gRPC services (`ViewProjectionStore` and `ViewProjectionConsumer`) for remote storage and querying.
+`views.With` dispatches based on the `*v1.System`'s transport (via its view connectivity):
 
 - **gRPC**: Full support with remote storage and version tracking
-- **Memory**: Supported for testing with in-memory storage
-- **HTTP**: Not supported - view projections require gRPC services
+- **Memory**: Full support with in-process storage and version tracking
+- **HTTP**: Not supported - the HTTP transport does not expose view projection services; `views.With` returns an error
 
 ## Examples
 

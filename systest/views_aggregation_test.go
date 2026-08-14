@@ -88,11 +88,9 @@ func TestProjectionWithComplexHandlerLogic(t *testing.T) {
 		}),
 	)
 
-	client, err := connectProjection(harness.ctx, t, harness, proj)
+	client, err := connectProjection(harness.ctx, harness, proj)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, client.Close())
-	}()
+	t.Cleanup(func() { closeClient(t, client) })
 
 	// Submit events
 	stream := harness.system.MustStream(harness.ctx, harness.appName, harness.streamName)

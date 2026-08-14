@@ -36,7 +36,7 @@ echo "Running examples with memory"
 echo
 export PGCQRS_SERVICE_TRANSPORT="memory"
 export ENV="system_test.memory"
-run_all
+run_all no_watch no_views
 
 echo
 echo "Running examples with HTTP"

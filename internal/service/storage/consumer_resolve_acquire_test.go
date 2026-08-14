@@ -57,7 +57,7 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 5*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 5*time.Second)
 		require.Error(t, err)
 		var ttlErr *v1.TTLTooLowError
 		require.ErrorAs(t, err, &ttlErr)
@@ -71,7 +71,7 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		result, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		result, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.True(t, result.Acquired)
@@ -84,11 +84,11 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
 		otherHolder := faker.Word()
-		result, err := store.TryAcquire(ctx, domain, stream, consumer, otherHolder, 30*time.Second)
+		result, _, err := store.TryAcquire(ctx, domain, stream, consumer, otherHolder, 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.False(t, result.Acquired)
@@ -100,7 +100,7 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 		t.Parallel()
 		store := NewConsumerStore(WithDatabaseConnection(t))
 
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.Error(t, err)
 		var streamErr *StreamNotFoundError
 		require.ErrorAs(t, err, &streamErr)
@@ -112,11 +112,11 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		result1, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		result1, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 		require.True(t, result1.Acquired)
 
-		result2, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		result2, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result2)
 		assert.True(t, result2.Acquired)
@@ -134,7 +134,7 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 		streamID := resolveStreamID(ctx, t, pool, domain, stream)
 		insertExpiredLock(ctx, t, pool, streamID, consumerID, "holder-expired")
 
-		result, err := store.TryAcquire(ctx, domain, stream, consumer, "holder-new", 30*time.Second)
+		result, _, err := store.TryAcquire(ctx, domain, stream, consumer, "holder-new", 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		assert.True(t, result.Acquired,

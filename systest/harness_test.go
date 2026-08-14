@@ -62,6 +62,7 @@ func setupHarnessT(t *testing.T) *harness {
 		serviceURL: url,
 	}
 	t.Cleanup(done)
+	t.Cleanup(func() { require.NoError(t, system.Close()) })
 	return h
 }
 

@@ -338,3 +338,14 @@ type BadResponseCode struct {
 func (b *BadResponseCode) Error() string {
 	return fmt.Sprintf("bad response code %d for %s", b.Code, b.URL)
 }
+
+// OnLockRelease is a no-op for HTTP transport since lock release notifications
+// are handled via the WaitForLock RPC on the server side.
+func (c *HTTPTransportLayer) OnLockRelease(_ func(context.Context, LockReleasedEvent) error) func() {
+	return func() {}
+}
+
+// Close is a no-op for HTTP transport.
+func (c *HTTPTransportLayer) Close() error {
+	return nil
+}

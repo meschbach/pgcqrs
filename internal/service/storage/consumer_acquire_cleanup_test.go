@@ -34,7 +34,7 @@ func TestConsumerStore_TryAcquire_CleansExpiredLocks(t *testing.T) {
 	}
 	_ = consumerID
 
-	result, err := store.TryAcquire(ctx, domain, stream, "new-consumer", "new-holder", 30*time.Second)
+	result, _, err := store.TryAcquire(ctx, domain, stream, "new-consumer", "new-holder", 30*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.True(t, result.Acquired)
@@ -69,7 +69,7 @@ func TestConsumerStore_TryAcquire_ConcurrentAcquisition(t *testing.T) {
 	for i := range numGoroutines {
 		go func(holderID int) {
 			<-start
-			result, err := store.TryAcquire(ctx, domain, stream, consumer, fmt.Sprintf("holder-%d", holderID), 30*time.Second)
+			result, _, err := store.TryAcquire(ctx, domain, stream, consumer, fmt.Sprintf("holder-%d", holderID), 30*time.Second)
 			if err != nil {
 				errors <- err
 				return

@@ -46,7 +46,9 @@ func (v *Indexer) Query() *query2.Query {
 }
 
 // makeDispatchHandler creates a query2 handler that wraps the raw handler
-// with Store.Persist and Notifier.Notify calls.
+// with Store.Persist and Notifier.Notify calls. Every processed event is
+// persisted (advancing the projection version, even when the handler produced
+// no mutations) and broadcast to observers.
 func (v *Indexer) makeDispatchHandler(kind string, raw rawHandler) v1.OnStreamQueryResult {
 	return func(ctx context.Context, e v1.Envelope, rawJSON json.RawMessage) error {
 		actx := &ReduceContext{
@@ -59,9 +61,6 @@ func (v *Indexer) makeDispatchHandler(kind string, raw rawHandler) v1.OnStreamQu
 		if err != nil {
 			return fmt.Errorf("handler for %s: %w", kind, err)
 		}
-		if result == nil {
-			return nil
-		}
 
 		change, err := v.store.Persist(ctx, result, e.ID)
 		if err != nil {
@@ -69,7 +68,9 @@ func (v *Indexer) makeDispatchHandler(kind string, raw rawHandler) v1.OnStreamQu
 		}
 
 		if v.notifier != nil && change != nil {
-			v.notifier.Notify(*change)
+			if err := v.notifier.Emit(ctx, *change); err != nil {
+				return fmt.Errorf("notify observers for %s: %w", kind, err)
+			}
 		}
 
 		return nil

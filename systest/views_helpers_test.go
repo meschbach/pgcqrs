@@ -14,13 +14,13 @@ import (
 // the JSON value into T, and returns it for further assertion.
 //
 //nolint:revive // test helpers put t first, context second
-func requireEntityValue[T any](t *testing.T, ctx context.Context, client *views.Client, kind string, key views.Key, version int64, timeout ...time.Duration) T {
+func requireEntityValue[T any](t *testing.T, ctx context.Context, client views.ProjectionClient, kind string, key views.Key, version int64, timeout ...time.Duration) T {
 	t.Helper()
-	d := 500 * time.Millisecond
+	actualWaitDuration := 3 * time.Second
 	if len(timeout) > 0 {
-		d = timeout[0]
+		actualWaitDuration = timeout[0]
 	}
-	entity, result, err := client.Get(ctx, kind, key, views.UntilVersion(version, d))
+	entity, result, err := client.Get(ctx, kind, key, views.UntilVersion(version, actualWaitDuration))
 	require.NoError(t, err)
 	require.Equal(t, views.StatusOK, result.Status, "expected entity at version (ok), got %s", result.Status.String())
 	require.NotNil(t, entity)

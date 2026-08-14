@@ -320,6 +320,7 @@ func (g *grpcPort) Serve(ctx context.Context) error {
 	})
 	ipc.RegisterConsumerLockServer(service, &grpcConsumerLock{
 		consumerStore: g.consumerStore,
+		bus:           g.bus,
 	})
 
 	// Register ViewProjection services

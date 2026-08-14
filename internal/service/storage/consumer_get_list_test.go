@@ -24,7 +24,7 @@ func TestConsumerStore_GetLock(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
 		state, found, err := store.GetLock(ctx, domain, stream, consumer)
@@ -81,9 +81,9 @@ func TestConsumerStore_ListLocks(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		_, err := store.TryAcquire(ctx, domain, stream, "consumer-a", "holder-a", 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, "consumer-a", "holder-a", 30*time.Second)
 		require.NoError(t, err)
-		_, err = store.TryAcquire(ctx, domain, stream, "consumer-b", "holder-b", 30*time.Second)
+		_, _, err = store.TryAcquire(ctx, domain, stream, "consumer-b", "holder-b", 30*time.Second)
 		require.NoError(t, err)
 
 		locks, err := store.ListLocks(ctx, domain, stream)
@@ -115,7 +115,7 @@ func TestConsumerStore_ListLocks(t *testing.T) {
 		insertExpiredLock(ctx, t, pool, streamID, consumerID1, "holder-expired")
 
 		// Acquire an active lock
-		_, err = store.TryAcquire(ctx, domain, stream, "consumer-active", "holder-active", 30*time.Second)
+		_, _, err = store.TryAcquire(ctx, domain, stream, "consumer-active", "holder-active", 30*time.Second)
 		require.NoError(t, err)
 
 		// ListLocks should only return the active lock

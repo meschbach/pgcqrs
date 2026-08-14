@@ -3,9 +3,11 @@ package v1
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
+	"github.com/meschbach/go-junk-bucket/pkg/emitter"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	"github.com/meschbach/pgcqrs/pkg/v1/local"
 	"go.opentelemetry.io/otel/attribute"
@@ -25,20 +27,28 @@ type memoryCommand interface {
 }
 
 type memory struct {
-	input     chan memoryOp
-	domains   map[string]*memoryDomain
-	positions map[string]map[string]int64
-	locks     map[string]*memoryLock
-	now       func() time.Time
+	input         chan memoryOp
+	domains       map[string]*memoryDomain
+	positions     map[string]map[string]int64
+	locks         map[string]map[string]map[string]*memoryLockState
+	now           func() time.Time
+	onLockRelease *emitter.MutexDispatcher[LockReleasedEvent]
+	stopCh        chan struct{}
 }
 
-type memoryLock struct {
+// ViewConnectivity reports that projections are served in-process.
+func (m *memory) ViewConnectivity() ViewConnectivity {
+	return ViewConnectivity{Memory: true}
+}
+
+type memoryLockState struct {
 	holder         string
 	acquiredAt     time.Time
 	heartbeatAt    time.Time
 	ttl            time.Duration
 	guaranteeUntil time.Time
 	heldUntil      time.Time
+	expiryTimer    *time.Timer
 }
 
 type memoryDomain struct {
@@ -59,10 +69,41 @@ type memoryPacket struct {
 	data []byte
 }
 
+type lockExpiryOp struct {
+	domain   string
+	stream   string
+	consumer string
+}
+
+func (op *lockExpiryOp) perform(m *memory) {
+	existing := m.lockState(op.domain, op.stream, op.consumer)
+	if existing == nil {
+		return
+	}
+	// Timer-driven expiry runs outside any request context, so a failing
+	// subscriber notification cannot be propagated. The lock is removed
+	// regardless so waiters retry acquisition on the next cycle.
+	//nolint:forbidigo // no request context exists for a timer-driven expiry
+	if err := m.onLockRelease.Emit(context.Background(), LockReleasedEvent{
+		Domain:   op.domain,
+		Stream:   op.stream,
+		Consumer: op.consumer,
+		Holder:   existing.holder,
+	}); err != nil {
+		return
+	}
+	m.deleteLock(op.domain, op.stream, op.consumer)
+}
+
 func (m *memory) runService() {
-	for op := range m.input {
-		op.command.perform(m)
-		close(op.done)
+	for {
+		select {
+		case op := <-m.input:
+			op.command.perform(m)
+			close(op.done)
+		case <-m.stopCh:
+			return
+		}
 	}
 }
 
@@ -83,11 +124,13 @@ func (m *memory) simulateNetwork(ctx context.Context, cmd memoryCommand) error {
 // NewMemoryTransport creates a new in-memory Transport.
 func NewMemoryTransport() Transport {
 	m := &memory{
-		input:     make(chan memoryOp, 32),
-		domains:   make(map[string]*memoryDomain),
-		positions: make(map[string]map[string]int64),
-		locks:     make(map[string]*memoryLock),
-		now:       time.Now,
+		input:         make(chan memoryOp, 32),
+		domains:       make(map[string]*memoryDomain),
+		positions:     make(map[string]map[string]int64),
+		locks:         make(map[string]map[string]map[string]*memoryLockState),
+		now:           time.Now,
+		onLockRelease: emitter.NewMutexDispatcher[LockReleasedEvent](),
+		stopCh:        make(chan struct{}),
 	}
 	go m.runService()
 	return m
@@ -120,17 +163,59 @@ func (m *memory) EnsureStream(ctx context.Context, domain, stream string) error 
 	}})
 }
 
-func (m *memory) lockKey(domain, stream, consumer string) string {
-	return domain + "/" + stream + "/" + consumer
+// lockState returns the lock state for a consumer, or nil if the consumer does
+// not hold a lock for the given domain and stream.
+func (m *memory) lockState(domain, stream, consumer string) *memoryLockState {
+	streams, ok := m.locks[domain]
+	if !ok {
+		return nil
+	}
+	consumers, ok := streams[stream]
+	if !ok {
+		return nil
+	}
+	return consumers[consumer]
+}
+
+// setLock stores the lock state for a consumer, creating intermediate maps as
+// needed.
+func (m *memory) setLock(domain, stream, consumer string, state *memoryLockState) {
+	streams, ok := m.locks[domain]
+	if !ok {
+		streams = make(map[string]map[string]*memoryLockState)
+		m.locks[domain] = streams
+	}
+	consumers, ok := streams[stream]
+	if !ok {
+		consumers = make(map[string]*memoryLockState)
+		streams[stream] = consumers
+	}
+	consumers[consumer] = state
+}
+
+// deleteLock removes the lock state for a consumer, pruning empty stream and
+// domain entries.
+func (m *memory) deleteLock(domain, stream, consumer string) {
+	streams, ok := m.locks[domain]
+	if !ok {
+		return
+	}
+	consumers, ok := streams[stream]
+	if !ok {
+		return
+	}
+	delete(consumers, consumer)
+	if len(consumers) == 0 {
+		delete(streams, stream)
+	}
 }
 
 func (m *memory) checkLock(domain, stream string, lock *Lock) error {
 	if lock == nil {
 		return nil
 	}
-	key := m.lockKey(domain, stream, lock.Consumer)
-	lockState, exists := m.locks[key]
-	if !exists {
+	state := m.lockState(domain, stream, lock.Consumer)
+	if state == nil {
 		return &LockNotHeldError{
 			Consumer: lock.Consumer,
 			Holder:   lock.Holder,
@@ -138,7 +223,7 @@ func (m *memory) checkLock(domain, stream string, lock *Lock) error {
 			Stream:   stream,
 		}
 	}
-	if m.now().After(lockState.heldUntil) {
+	if m.now().After(state.heldUntil) {
 		return &LockNotHeldError{
 			Consumer: lock.Consumer,
 			Holder:   lock.Holder,
@@ -146,7 +231,7 @@ func (m *memory) checkLock(domain, stream string, lock *Lock) error {
 			Stream:   stream,
 		}
 	}
-	if lockState.holder != lock.Holder {
+	if state.holder != lock.Holder {
 		return &LockNotHeldError{
 			Consumer: lock.Consumer,
 			Holder:   lock.Holder,
@@ -652,20 +737,31 @@ func (m *memory) DeletePosition(ctx context.Context, domain, stream, consumer st
 	}})
 }
 
-func (m *memory) cleanExpiredLocks(prefix, excludeKey string, now time.Time) {
+func (m *memory) cleanExpiredLocks(domain, stream, excludeConsumer string, now time.Time) []LockReleasedEvent {
+	var events []LockReleasedEvent
 	deleted := 0
-	for k, l := range m.locks {
-		if k == excludeKey {
+	for consumer, l := range m.locks[domain][stream] {
+		if consumer == excludeConsumer {
 			continue
 		}
 		if deleted >= 128 {
 			break
 		}
-		if len(k) > len(prefix) && k[:len(prefix)] == prefix && now.After(l.heldUntil) {
-			delete(m.locks, k)
+		if now.After(l.heldUntil) {
+			events = append(events, LockReleasedEvent{
+				Domain:   domain,
+				Stream:   stream,
+				Consumer: consumer,
+				Holder:   l.holder,
+			})
+			if l.expiryTimer != nil {
+				l.expiryTimer.Stop()
+			}
+			m.deleteLock(domain, stream, consumer)
 			deleted++
 		}
 	}
+	return events
 }
 
 func (m *memory) TryAcquire(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (out *LockResult, retErr error) {
@@ -691,45 +787,59 @@ func (m *memory) TryAcquire(ctx context.Context, domain, stream, consumer, holde
 	}
 
 	var result *LockResult
+	var expiredEvents []LockReleasedEvent
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
-		key := m.lockKey(domain, stream, consumer)
-		now := m.now()
-
-		if existing, ok := m.locks[key]; ok && !now.After(existing.heldUntil) && existing.holder != holder {
-			result = &LockResult{
-				Acquired:       false,
-				HeldBy:         existing.holder,
-				GuaranteeUntil: existing.guaranteeUntil,
-				HeldUntil:      existing.heldUntil,
-			}
-			return
-		}
-
-		prefix := domain + "/" + stream + "/"
-		m.cleanExpiredLocks(prefix, key, now)
-
-		guaranteeUntil := now.Add(time.Duration(float64(ttl) * DefaultGuaranteeFraction))
-		heldUntil := now.Add(ttl)
-
-		m.locks[key] = &memoryLock{
-			holder:         holder,
-			acquiredAt:     now,
-			heartbeatAt:    now,
-			ttl:            ttl,
-			guaranteeUntil: guaranteeUntil,
-			heldUntil:      heldUntil,
-		}
-
-		result = &LockResult{
-			Acquired:       true,
-			HeldBy:         holder,
-			GuaranteeUntil: guaranteeUntil,
-			HeldUntil:      heldUntil,
-		}
+		result, expiredEvents = m.tryAcquireInternal(domain, stream, consumer, holder, ttl)
 	}}); err != nil {
 		return nil, err
 	}
-	return result, nil
+	for _, evt := range expiredEvents {
+		retErr = errors.Join(retErr, m.onLockRelease.Emit(ctx, evt))
+	}
+	return result, retErr
+}
+
+// tryAcquireInternal performs the acquisition logic on the memory service
+// goroutine.
+func (m *memory) tryAcquireInternal(domain, stream, consumer, holder string, ttl time.Duration) (*LockResult, []LockReleasedEvent) {
+	now := m.now()
+
+	if existing := m.lockState(domain, stream, consumer); existing != nil && !now.After(existing.heldUntil) && existing.holder != holder {
+		return &LockResult{
+			Acquired:       false,
+			HeldBy:         existing.holder,
+			GuaranteeUntil: existing.guaranteeUntil,
+			HeldUntil:      existing.heldUntil,
+		}, nil
+	}
+
+	expiredEvents := m.cleanExpiredLocks(domain, stream, consumer, now)
+
+	guaranteeUntil := now.Add(time.Duration(float64(ttl) * DefaultGuaranteeFraction))
+	heldUntil := now.Add(ttl)
+
+	newState := &memoryLockState{
+		holder:         holder,
+		acquiredAt:     now,
+		heartbeatAt:    now,
+		ttl:            ttl,
+		guaranteeUntil: guaranteeUntil,
+		heldUntil:      heldUntil,
+	}
+	newState.expiryTimer = time.AfterFunc(ttl, func() {
+		m.input <- memoryOp{
+			done:    make(chan interface{}),
+			command: &lockExpiryOp{domain: domain, stream: stream, consumer: consumer},
+		}
+	})
+	m.setLock(domain, stream, consumer, newState)
+
+	return &LockResult{
+		Acquired:       true,
+		HeldBy:         holder,
+		GuaranteeUntil: guaranteeUntil,
+		HeldUntil:      heldUntil,
+	}, expiredEvents
 }
 
 func (m *memory) Release(ctx context.Context, domain, stream, consumer, holder string) (retErr error) {
@@ -746,30 +856,50 @@ func (m *memory) Release(ctx context.Context, domain, stream, consumer, holder s
 		span.End()
 	}()
 
+	var released bool
 	var releaseErr error
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
-		key := m.lockKey(domain, stream, consumer)
-		existing, ok := m.locks[key]
-		if !ok {
-			return
-		}
-		if m.now().After(existing.heldUntil) {
-			return
-		}
-		if existing.holder != holder {
-			releaseErr = &LockNotHeldError{
-				Consumer: consumer,
-				Holder:   holder,
-				Domain:   domain,
-				Stream:   stream,
-			}
-			return
-		}
-		delete(m.locks, key)
+		released, releaseErr = m.releaseInternal(domain, stream, consumer, holder)
 	}}); err != nil {
 		return err
 	}
-	return releaseErr
+	if releaseErr != nil {
+		return releaseErr
+	}
+	if released {
+		retErr = errors.Join(retErr, m.onLockRelease.Emit(ctx, LockReleasedEvent{
+			Domain:   domain,
+			Stream:   stream,
+			Consumer: consumer,
+			Holder:   holder,
+		}))
+	}
+	return retErr
+}
+
+// releaseInternal performs the release logic on the memory service goroutine.
+// Returns false when no active lock was held by the caller.
+func (m *memory) releaseInternal(domain, stream, consumer, holder string) (bool, error) {
+	state := m.lockState(domain, stream, consumer)
+	if state == nil {
+		return false, nil
+	}
+	if m.now().After(state.heldUntil) {
+		return false, nil
+	}
+	if state.holder != holder {
+		return false, &LockNotHeldError{
+			Consumer: consumer,
+			Holder:   holder,
+			Domain:   domain,
+			Stream:   stream,
+		}
+	}
+	if state.expiryTimer != nil {
+		state.expiryTimer.Stop()
+	}
+	m.deleteLock(domain, stream, consumer)
+	return true, nil
 }
 
 func (m *memory) GetLock(ctx context.Context, domain, stream, consumer string) (out *LockState, found bool, retErr error) {
@@ -788,9 +918,8 @@ func (m *memory) GetLock(ctx context.Context, domain, stream, consumer string) (
 
 	var state *LockState
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
-		key := m.lockKey(domain, stream, consumer)
-		existing, ok := m.locks[key]
-		if !ok {
+		existing := m.lockState(domain, stream, consumer)
+		if existing == nil {
 			return
 		}
 		if m.now().After(existing.heldUntil) {
@@ -831,16 +960,11 @@ func (m *memory) ListLocks(ctx context.Context, domain, stream string) (out []Lo
 
 	var states []LockState
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
-		prefix := domain + "/" + stream + "/"
 		now := m.now()
-		for k, l := range m.locks {
-			if len(k) <= len(prefix) || k[:len(prefix)] != prefix {
-				continue
-			}
+		for consumer, l := range m.locks[domain][stream] {
 			if now.After(l.heldUntil) {
 				continue
 			}
-			consumer := k[len(prefix):]
 			states = append(states, LockState{
 				Consumer:       consumer,
 				Domain:         domain,
@@ -885,11 +1009,10 @@ func (m *memory) HeartbeatWithPosition(ctx context.Context, domain, stream, cons
 }
 
 func (m *memory) heartbeatLockAndPosition(domain, stream, consumer, holder string, position int64) error {
-	key := m.lockKey(domain, stream, consumer)
 	now := m.now()
 
-	existing, ok := m.locks[key]
-	if !ok || now.After(existing.heldUntil) {
+	existing := m.lockState(domain, stream, consumer)
+	if existing == nil || now.After(existing.heldUntil) {
 		return &LockExpiredError{
 			Consumer: consumer,
 			Domain:   domain,
@@ -904,15 +1027,8 @@ func (m *memory) heartbeatLockAndPosition(domain, stream, consumer, holder strin
 			Stream:   stream,
 		}
 	}
-
-	posKey := m.positionKey(domain, stream, consumer)
-	if streamPositions, ok := m.positions[posKey]; ok {
-		if currentID, exists := streamPositions[consumer]; exists && position < currentID {
-			return &HeartbeatConflictError{
-				TargetVersion:  position,
-				CurrentVersion: currentID,
-			}
-		}
+	if err := m.checkPositionConflict(domain, stream, consumer, position); err != nil {
+		return err
 	}
 
 	guaranteeUntil := now.Add(time.Duration(float64(existing.ttl) * DefaultGuaranteeFraction))
@@ -922,9 +1038,52 @@ func (m *memory) heartbeatLockAndPosition(domain, stream, consumer, holder strin
 	existing.guaranteeUntil = guaranteeUntil
 	existing.heldUntil = heldUntil
 
+	// Reschedule the expiry timer
+	if existing.expiryTimer != nil {
+		existing.expiryTimer.Stop()
+	}
+	existing.expiryTimer = time.AfterFunc(existing.ttl, func() {
+		m.input <- memoryOp{
+			done:    make(chan interface{}),
+			command: &lockExpiryOp{domain: domain, stream: stream, consumer: consumer},
+		}
+	})
+
+	posKey := m.positionKey(domain, stream, consumer)
 	if _, ok := m.positions[posKey]; !ok {
 		m.positions[posKey] = make(map[string]int64)
 	}
 	m.positions[posKey][consumer] = position
+	return nil
+}
+
+// checkPositionConflict rejects heartbeats that move the consumer position
+// backwards.
+func (m *memory) checkPositionConflict(domain, stream, consumer string, position int64) error {
+	streamPositions, ok := m.positions[m.positionKey(domain, stream, consumer)]
+	if !ok {
+		return nil
+	}
+	currentID, exists := streamPositions[consumer]
+	if exists && position < currentID {
+		return &HeartbeatConflictError{
+			TargetVersion:  position,
+			CurrentVersion: currentID,
+		}
+	}
+	return nil
+}
+
+// OnLockRelease registers a callback to be invoked when a lock is released.
+// The callback receives the lock release event.
+func (m *memory) OnLockRelease(fn func(context.Context, LockReleasedEvent) error) func() {
+	sub := m.onLockRelease.OnE(fn)
+	return func() {
+		m.onLockRelease.Off(sub)
+	}
+}
+
+func (m *memory) Close() error {
+	close(m.stopCh)
 	return nil
 }

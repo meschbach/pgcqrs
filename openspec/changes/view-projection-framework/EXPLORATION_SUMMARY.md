@@ -16,12 +16,12 @@ New method on `query2.Watch` exposing the event ID for heartbeating. Eliminates 
 
 ### 3. Split gRPC Services (Revised Roles)
 - **ViewProjectionStore**: Narrow KV storage service (ApplyMutations, GetEntity). Used by the Pump for mutations and previous-state reads. Replaces the old ViewProjectionIndexer (which was a pump orchestrator).
-- **ViewProjectionConsumer**: Read API (GetEntity, GetVersion, WatchChanges). Used by webapps and downstream indexers. Unchanged from original design.
+- **ViewProjectionConsumer**: Read API (GetEntity, Version, WatchChanges). Used by webapps and downstream indexers. Unchanged from original design.
 
 Both register on the existing gRPC server — no new config, no new deployment.
 
 ### 4. Pump in Developer's Process
-The Pump runs in the developer's binary. It connects to pgcqrs via Wire (gRPC for production, memory for tests). Handlers execute locally. No bidi gRPC stream needed — the Pump uses existing Wire primitives (Watch, locks, positions) plus the narrow ViewProjectionStore gRPC for KV operations. The `Connect`/`ConnectMemory` functions bridge Wire and Transport from the same underlying connection.
+The Pump runs in the developer's binary. It connects to pgcqrs via Wire (gRPC for production, memory for tests). Handlers execute locally. No bidi gRPC stream needed — the Pump uses existing Wire primitives (Watch, locks, positions) plus the narrow ViewProjectionStore gRPC for KV operations. The `With` entry point runs the projection against a `*v1.System`, bridging Wire and Transport from the system's transport.
 
 ### 5. Store and Notification are Indexer-Internal
 The Pump doesn't know about stores or notifiers. Each indexer type encapsulates these within its `Query()` implementation. The views indexer's handlers call `store.Persist()` and `notifier.Notify()` internally.
@@ -79,7 +79,7 @@ Ready to proceed with implementation. The architecture is clear:
 5. Implement Store (memory + remote)
 6. Implement gRPC proto and server handlers (ViewProjectionStore + Consumer)
 7. Implement database migration
-8. Implement client framework (Connect, ConnectMemory)
+8. Implement client framework (With, ProjectionClient)
 9. Write tests
 10. Write documentation and examples
 

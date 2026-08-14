@@ -25,7 +25,7 @@ func NewRemoteStore(conn *grpc.ClientConn, id ProjectionIdentity) *RemoteStore {
 
 // Get retrieves an entity by kind and key from the remote store.
 func (r *RemoteStore) Get(ctx context.Context, kind string, key Key) (*Entity, error) {
-	resp, err := r.client.GetEntity(ctx, &vgrpc.GetEntityRequest{
+	resp, err := r.client.GetEntity(ctx, &vgrpc.StoreGetEntityRequest{
 		Projection: r.id.Projection,
 		Domain:     r.id.Domain,
 		Stream:     r.id.Stream,
@@ -46,7 +46,8 @@ func (r *RemoteStore) Get(ctx context.Context, kind string, key Key) (*Entity, e
 	}, nil
 }
 
-// Persist applies mutations atomically via the remote store.
+// Persist applies mutations atomically via the remote store. A nil result is
+// treated as an empty result; the server still advances the projection version.
 func (r *RemoteStore) Persist(ctx context.Context, result *ReduceResult, eventID int64) (*Change, error) {
 	req := &vgrpc.ApplyMutationsRequest{
 		Projection: r.id.Projection,
@@ -55,23 +56,25 @@ func (r *RemoteStore) Persist(ctx context.Context, result *ReduceResult, eventID
 		EventId:    eventID,
 	}
 
-	for _, u := range result.Upserts {
-		data, err := json.Marshal(u.Value)
-		if err != nil {
-			return nil, fmt.Errorf("marshal upsert value: %w", err)
+	if result != nil {
+		for _, u := range result.Upserts {
+			data, err := json.Marshal(u.Value)
+			if err != nil {
+				return nil, fmt.Errorf("marshal upsert value: %w", err)
+			}
+			req.Upserts = append(req.Upserts, &vgrpc.Upsert{
+				Kind:  u.Kind,
+				Key:   u.Key.Parts(),
+				Value: data,
+			})
 		}
-		req.Upserts = append(req.Upserts, &vgrpc.Upsert{
-			Kind:  u.Kind,
-			Key:   u.Key.Parts(),
-			Value: data,
-		})
-	}
 
-	for _, d := range result.Deletes {
-		req.Deletes = append(req.Deletes, &vgrpc.Delete{
-			Kind: d.Kind,
-			Key:  d.Key.Parts(),
-		})
+		for _, d := range result.Deletes {
+			req.Deletes = append(req.Deletes, &vgrpc.Delete{
+				Kind: d.Kind,
+				Key:  d.Key.Parts(),
+			})
+		}
 	}
 
 	resp, err := r.client.ApplyMutations(ctx, req)

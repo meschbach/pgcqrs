@@ -105,8 +105,9 @@ func TestIndexerHandlerNotifiesObserver(t *testing.T) {
 	store := NewMemoryStore()
 	notifier := NewNotifier()
 	var notified []Change
-	notifier.OnChange(func(c Change) {
+	notifier.OnChange(func(_ context.Context, c Change) error {
 		notified = append(notified, c)
+		return nil
 	})
 
 	indexer := NewIndexer(proj, store, notifier, stream)
@@ -168,7 +169,7 @@ func TestIndexerHandlerReadsPreviousState(t *testing.T) {
 	assert.Equal(t, int64(2), entity.Version)
 }
 
-func TestIndexerNilResultSkipsPersist(t *testing.T) {
+func TestIndexerNilResultAdvancesVersion(t *testing.T) {
 	t.Parallel()
 	transport := v1.NewMemoryTransport()
 	sys := v1.NewSystem(transport)
@@ -187,8 +188,20 @@ func TestIndexerNilResultSkipsPersist(t *testing.T) {
 	indexer := NewIndexer(proj, store, notifier, stream)
 	handler := indexer.makeDispatchHandler("NoOp", proj.handlers["NoOp"])
 
+	var notified []Change
+	unsubscribe := notifier.OnChange(func(_ context.Context, c Change) error {
+		notified = append(notified, c)
+		return nil
+	})
+	defer unsubscribe()
+
 	err = handler(ctx, v1.Envelope{ID: 1}, []byte(`{}`))
 	require.NoError(t, err)
 
-	assert.Equal(t, int64(0), store.Version())
+	// The version advances even when the handler produced no mutations.
+	assert.Equal(t, int64(1), store.Version())
+	require.Len(t, notified, 1)
+	assert.Equal(t, int64(1), notified[0].Version)
+	assert.Empty(t, notified[0].Upserts)
+	assert.Empty(t, notified[0].Deletes)
 }

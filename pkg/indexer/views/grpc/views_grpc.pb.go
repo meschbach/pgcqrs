@@ -31,7 +31,7 @@ const (
 // Used by the Pump (in the developer's process) for mutations and previous-state reads.
 type ViewProjectionStoreClient interface {
 	ApplyMutations(ctx context.Context, in *ApplyMutationsRequest, opts ...grpc.CallOption) (*ApplyMutationsResponse, error)
-	GetEntity(ctx context.Context, in *GetEntityRequest, opts ...grpc.CallOption) (*GetEntityResponse, error)
+	GetEntity(ctx context.Context, in *StoreGetEntityRequest, opts ...grpc.CallOption) (*GetEntityResponse, error)
 }
 
 type viewProjectionStoreClient struct {
@@ -52,7 +52,7 @@ func (c *viewProjectionStoreClient) ApplyMutations(ctx context.Context, in *Appl
 	return out, nil
 }
 
-func (c *viewProjectionStoreClient) GetEntity(ctx context.Context, in *GetEntityRequest, opts ...grpc.CallOption) (*GetEntityResponse, error) {
+func (c *viewProjectionStoreClient) GetEntity(ctx context.Context, in *StoreGetEntityRequest, opts ...grpc.CallOption) (*GetEntityResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(GetEntityResponse)
 	err := c.cc.Invoke(ctx, ViewProjectionStore_GetEntity_FullMethodName, in, out, cOpts...)
@@ -70,7 +70,7 @@ func (c *viewProjectionStoreClient) GetEntity(ctx context.Context, in *GetEntity
 // Used by the Pump (in the developer's process) for mutations and previous-state reads.
 type ViewProjectionStoreServer interface {
 	ApplyMutations(context.Context, *ApplyMutationsRequest) (*ApplyMutationsResponse, error)
-	GetEntity(context.Context, *GetEntityRequest) (*GetEntityResponse, error)
+	GetEntity(context.Context, *StoreGetEntityRequest) (*GetEntityResponse, error)
 	mustEmbedUnimplementedViewProjectionStoreServer()
 }
 
@@ -84,7 +84,7 @@ type UnimplementedViewProjectionStoreServer struct{}
 func (UnimplementedViewProjectionStoreServer) ApplyMutations(context.Context, *ApplyMutationsRequest) (*ApplyMutationsResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method ApplyMutations not implemented")
 }
-func (UnimplementedViewProjectionStoreServer) GetEntity(context.Context, *GetEntityRequest) (*GetEntityResponse, error) {
+func (UnimplementedViewProjectionStoreServer) GetEntity(context.Context, *StoreGetEntityRequest) (*GetEntityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEntity not implemented")
 }
 func (UnimplementedViewProjectionStoreServer) mustEmbedUnimplementedViewProjectionStoreServer() {}
@@ -127,7 +127,7 @@ func _ViewProjectionStore_ApplyMutations_Handler(srv interface{}, ctx context.Co
 }
 
 func _ViewProjectionStore_GetEntity_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetEntityRequest)
+	in := new(StoreGetEntityRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
@@ -139,7 +139,7 @@ func _ViewProjectionStore_GetEntity_Handler(srv interface{}, ctx context.Context
 		FullMethod: ViewProjectionStore_GetEntity_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ViewProjectionStoreServer).GetEntity(ctx, req.(*GetEntityRequest))
+		return srv.(ViewProjectionStoreServer).GetEntity(ctx, req.(*StoreGetEntityRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -166,7 +166,7 @@ var ViewProjectionStore_ServiceDesc = grpc.ServiceDesc{
 
 const (
 	ViewProjectionConsumer_GetEntity_FullMethodName    = "/views.ViewProjectionConsumer/GetEntity"
-	ViewProjectionConsumer_GetVersion_FullMethodName   = "/views.ViewProjectionConsumer/GetVersion"
+	ViewProjectionConsumer_Version_FullMethodName      = "/views.ViewProjectionConsumer/Version"
 	ViewProjectionConsumer_WatchChanges_FullMethodName = "/views.ViewProjectionConsumer/WatchChanges"
 )
 
@@ -177,7 +177,7 @@ const (
 // ViewProjectionConsumer serves entity state to remote clients (webapps, downstream indexers).
 type ViewProjectionConsumerClient interface {
 	GetEntity(ctx context.Context, in *GetEntityRequest, opts ...grpc.CallOption) (*GetEntityResponse, error)
-	GetVersion(ctx context.Context, in *GetVersionRequest, opts ...grpc.CallOption) (*GetVersionResponse, error)
+	Version(ctx context.Context, in *VersionRequest, opts ...grpc.CallOption) (*VersionResponse, error)
 	WatchChanges(ctx context.Context, in *WatchChangesRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchChangesResponse], error)
 }
 
@@ -199,10 +199,10 @@ func (c *viewProjectionConsumerClient) GetEntity(ctx context.Context, in *GetEnt
 	return out, nil
 }
 
-func (c *viewProjectionConsumerClient) GetVersion(ctx context.Context, in *GetVersionRequest, opts ...grpc.CallOption) (*GetVersionResponse, error) {
+func (c *viewProjectionConsumerClient) Version(ctx context.Context, in *VersionRequest, opts ...grpc.CallOption) (*VersionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
-	out := new(GetVersionResponse)
-	err := c.cc.Invoke(ctx, ViewProjectionConsumer_GetVersion_FullMethodName, in, out, cOpts...)
+	out := new(VersionResponse)
+	err := c.cc.Invoke(ctx, ViewProjectionConsumer_Version_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -235,7 +235,7 @@ type ViewProjectionConsumer_WatchChangesClient = grpc.ServerStreamingClient[Watc
 // ViewProjectionConsumer serves entity state to remote clients (webapps, downstream indexers).
 type ViewProjectionConsumerServer interface {
 	GetEntity(context.Context, *GetEntityRequest) (*GetEntityResponse, error)
-	GetVersion(context.Context, *GetVersionRequest) (*GetVersionResponse, error)
+	Version(context.Context, *VersionRequest) (*VersionResponse, error)
 	WatchChanges(*WatchChangesRequest, grpc.ServerStreamingServer[WatchChangesResponse]) error
 	mustEmbedUnimplementedViewProjectionConsumerServer()
 }
@@ -250,8 +250,8 @@ type UnimplementedViewProjectionConsumerServer struct{}
 func (UnimplementedViewProjectionConsumerServer) GetEntity(context.Context, *GetEntityRequest) (*GetEntityResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method GetEntity not implemented")
 }
-func (UnimplementedViewProjectionConsumerServer) GetVersion(context.Context, *GetVersionRequest) (*GetVersionResponse, error) {
-	return nil, status.Error(codes.Unimplemented, "method GetVersion not implemented")
+func (UnimplementedViewProjectionConsumerServer) Version(context.Context, *VersionRequest) (*VersionResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method Version not implemented")
 }
 func (UnimplementedViewProjectionConsumerServer) WatchChanges(*WatchChangesRequest, grpc.ServerStreamingServer[WatchChangesResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchChanges not implemented")
@@ -296,20 +296,20 @@ func _ViewProjectionConsumer_GetEntity_Handler(srv interface{}, ctx context.Cont
 	return interceptor(ctx, in, info, handler)
 }
 
-func _ViewProjectionConsumer_GetVersion_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
-	in := new(GetVersionRequest)
+func _ViewProjectionConsumer_Version_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(VersionRequest)
 	if err := dec(in); err != nil {
 		return nil, err
 	}
 	if interceptor == nil {
-		return srv.(ViewProjectionConsumerServer).GetVersion(ctx, in)
+		return srv.(ViewProjectionConsumerServer).Version(ctx, in)
 	}
 	info := &grpc.UnaryServerInfo{
 		Server:     srv,
-		FullMethod: ViewProjectionConsumer_GetVersion_FullMethodName,
+		FullMethod: ViewProjectionConsumer_Version_FullMethodName,
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
-		return srv.(ViewProjectionConsumerServer).GetVersion(ctx, req.(*GetVersionRequest))
+		return srv.(ViewProjectionConsumerServer).Version(ctx, req.(*VersionRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -337,8 +337,8 @@ var ViewProjectionConsumer_ServiceDesc = grpc.ServiceDesc{
 			Handler:    _ViewProjectionConsumer_GetEntity_Handler,
 		},
 		{
-			MethodName: "GetVersion",
-			Handler:    _ViewProjectionConsumer_GetVersion_Handler,
+			MethodName: "Version",
+			Handler:    _ViewProjectionConsumer_Version_Handler,
 		},
 	},
 	Streams: []grpc.StreamDesc{

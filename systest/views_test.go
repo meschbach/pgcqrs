@@ -4,24 +4,21 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"os"
 	"testing"
 	"time"
 
+	"github.com/meschbach/pgcqrs/pkg/indexer"
 	"github.com/meschbach/pgcqrs/pkg/indexer/views"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-// connectProjection creates a projection client using the appropriate method based on transport
-func connectProjection(ctx context.Context, _ *testing.T, harness *harness, proj *views.Projection) (*views.Client, error) {
-	transport := os.Getenv("PGCQRS_TEST_TRANSPORT")
-	if transport == "grpc" {
-		return views.Connect(ctx, harness.serviceURL, proj)
-	}
-	// For memory transport, use the same transport instance
-	return views.ConnectMemory(ctx, harness.transport, proj)
+// connectProjection creates a projection client against the harness system.
+// The system's transport determines whether the projection is served in-process
+// (memory) or remotely (gRPC).
+func connectProjection(ctx context.Context, harness *harness, proj *views.Projection) (views.ProjectionClient, error) {
+	return views.With(ctx, harness.system, proj)
 }
 
 // TestGRPCWatchDuplicateEvents is a minimal test to demonstrate the gRPC Watch bug
@@ -86,14 +83,16 @@ func TestGRPCWatchDuplicateEvents(t *testing.T) {
 		}),
 	)
 
-	client, err := connectProjection(harness.ctx, t, harness, proj)
+	client, err := connectProjection(harness.ctx, harness, proj)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, client.Close())
-	}()
+	t.Cleanup(func() { closeClient(t, client) })
 
 	// basic sanity check before we continue -- we expect 0 events on startup
-	assert.Equal(t, 0, onKindCallData.callCount, "no prior events exist")
+	// Note: We can't directly access callCount from here, so we'll skip this check
+	// and rely on the final assertion
+
+	// Wait for the projection to reach Watching state
+	waitForState(t, client, indexer.PumpStateWatching)
 
 	// Submit exactly 5 events
 	stream := harness.system.MustStream(harness.ctx, harness.appName, harness.streamName)

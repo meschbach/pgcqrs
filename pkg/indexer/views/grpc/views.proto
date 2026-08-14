@@ -6,13 +6,13 @@ option go_package = "github.com/meschbach/pgcqrs/pkg/indexer/views/grpc";
 // Used by the Pump (in the developer's process) for mutations and previous-state reads.
 service ViewProjectionStore {
     rpc ApplyMutations(ApplyMutationsRequest) returns (ApplyMutationsResponse);
-    rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
+    rpc GetEntity(StoreGetEntityRequest) returns (GetEntityResponse);
 }
 
 // ViewProjectionConsumer serves entity state to remote clients (webapps, downstream indexers).
 service ViewProjectionConsumer {
     rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
-    rpc GetVersion(GetVersionRequest) returns (GetVersionResponse);
+    rpc Version(VersionRequest) returns (VersionResponse);
     rpc WatchChanges(WatchChangesRequest) returns (stream WatchChangesResponse);
 }
 
@@ -64,6 +64,18 @@ message UntilVersionConstraint {
     int64 timeout_ms = 2;
 }
 
+// StoreGetEntityRequest is the plain entity read used by the write-path service.
+// It intentionally carries no version constraints: ViewProjectionStore is the
+// Pump's storage backend and must never wait on version. Constrained reads are
+// served by ViewProjectionConsumer.GetEntity.
+message StoreGetEntityRequest {
+    string projection = 1;
+    string kind = 2;
+    repeated string key = 3;
+    string domain = 4;
+    string stream = 5;
+}
+
 message GetEntityRequest {
     string projection = 1;
     string kind = 2;
@@ -76,20 +88,28 @@ message GetEntityRequest {
     string stream = 7;
 }
 
+// GetStatus reports how a GetEntity was resolved.
+enum GetStatus {
+    GET_STATUS_OK = 0;
+    GET_STATUS_NOT_FOUND = 1;
+    GET_STATUS_STALE = 2;
+    GET_STATUS_TIMEOUT = 3;
+}
+
 message GetEntityResponse {
     Entity entity = 1;
-    int32 status = 2;  // Status enum: 0=OK, 1=NotFound, 2=Stale, 3=Timeout
+    GetStatus status = 2;
 }
 
 // --- ViewProjectionConsumer messages ---
 
-message GetVersionRequest {
+message VersionRequest {
     string projection = 1;
     string domain = 2;
     string stream = 3;
 }
 
-message GetVersionResponse {
+message VersionResponse {
     int64 version = 1;
 }
 

@@ -61,6 +61,14 @@ type LockState struct {
 	HeldUntil time.Time
 }
 
+// LockReleasedEvent is emitted when a consumer lock is released.
+type LockReleasedEvent struct {
+	Domain   string
+	Stream   string
+	Consumer string
+	Holder   string
+}
+
 // LockNotHeldError is returned when a lock assertion fails.
 type LockNotHeldError struct {
 	Consumer string

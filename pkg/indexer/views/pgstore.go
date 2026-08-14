@@ -35,14 +35,9 @@ func (s *PGStore) ResolveStreamID(ctx context.Context, domain, stream string) (i
 	return id, nil
 }
 
-func (s *PGStore) resolveProjectionName(ctx context.Context, tx pgx.Tx, id ProjectionIdentity) (int64, error) {
-	streamID, err := s.ResolveStreamID(ctx, id.Domain, id.Stream)
-	if err != nil {
-		return 0, err
-	}
-
+func (s *PGStore) resolveProjectionName(ctx context.Context, tx pgx.Tx, streamID int64, id ProjectionIdentity) (int64, error) {
 	var projID int64
-	err = tx.QueryRow(ctx, `
+	err := tx.QueryRow(ctx, `
 		INSERT INTO view_projection_names (stream_id, name) VALUES ($1, $2)
 		ON CONFLICT (stream_id, name) DO NOTHING
 		RETURNING id
@@ -134,36 +129,66 @@ func (s *PGStore) getComposite(ctx context.Context, projID, kindID int64, k1, k2
 	return &Entity{Key: NewKey(k1, k2), Value: value, Version: version}, nil
 }
 
-// Persist applies mutations atomically in a single transaction.
-func (s *PGStore) Persist(ctx context.Context, id ProjectionIdentity, result *ReduceResult, eventID int64) (change *Change, err error) {
+// Persist applies mutations atomically in a single transaction. A nil result is
+// treated as an empty result: the projection version still advances to eventID
+// via a consumer_positions row written in the same transaction.
+func (s *PGStore) Persist(ctx context.Context, id ProjectionIdentity, result *ReduceResult, eventID int64) (*Change, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("begin transaction: %w", err)
 	}
-	defer func() {
-		if err != nil {
-			rollbackErr := tx.Rollback(ctx)
-			if rollbackErr != nil {
-				err = errors.Join(err, rollbackErr)
-			}
-		}
-	}()
 
-	projID, err := s.resolveProjectionName(ctx, tx, id)
+	change, err := s.applyAndRecord(ctx, tx, id, result, eventID)
 	if err != nil {
-		return nil, fmt.Errorf("resolve projection name: %w", err)
-	}
-
-	change, err = s.applyMutations(ctx, tx, projID, result, eventID)
-	if err != nil {
-		return nil, err
+		rollbackErr := tx.Rollback(ctx)
+		return nil, errors.Join(err, rollbackErr)
 	}
 
 	if err := tx.Commit(ctx); err != nil {
 		return nil, fmt.Errorf("commit: %w", err)
 	}
-
 	return change, nil
+}
+
+func (s *PGStore) applyAndRecord(ctx context.Context, tx pgx.Tx, id ProjectionIdentity, result *ReduceResult, eventID int64) (*Change, error) {
+	if result == nil {
+		result = &ReduceResult{}
+	}
+
+	streamID, err := s.ResolveStreamID(ctx, id.Domain, id.Stream)
+	if err != nil {
+		return nil, err
+	}
+
+	projID, err := s.resolveProjectionName(ctx, tx, streamID, id)
+	if err != nil {
+		return nil, fmt.Errorf("resolve projection name: %w", err)
+	}
+
+	change, err := s.applyMutations(ctx, tx, projID, result, eventID)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.writePosition(ctx, tx, streamID, id.Projection, eventID); err != nil {
+		return nil, err
+	}
+	return change, nil
+}
+
+func (s *PGStore) writePosition(ctx context.Context, tx pgx.Tx, streamID int64, consumer string, eventID int64) error {
+	_, err := tx.Exec(ctx, `
+		INSERT INTO consumer_positions (stream_id, consumer, event_id, updated_at)
+		VALUES ($1, $2, $3, NOW())
+		ON CONFLICT (stream_id, consumer) DO UPDATE
+		SET event_id = EXCLUDED.event_id,
+		    updated_at = EXCLUDED.updated_at
+		WHERE COALESCE(consumer_positions.event_id, 0) <= EXCLUDED.event_id
+	`, streamID, consumer, eventID)
+	if err != nil {
+		return fmt.Errorf("update consumer position: %w", err)
+	}
+	return nil
 }
 
 func (s *PGStore) applyMutations(ctx context.Context, tx pgx.Tx, projID int64, result *ReduceResult, eventID int64) (*Change, error) {
@@ -250,8 +275,8 @@ func marshalValue(value any) ([]byte, error) {
 	return json.Marshal(value)
 }
 
-// GetVersion returns the projection version from consumer_positions.
-func (s *PGStore) GetVersion(ctx context.Context, id ProjectionIdentity) (int64, error) {
+// Version returns the projection version from consumer_positions.
+func (s *PGStore) Version(ctx context.Context, id ProjectionIdentity) (int64, error) {
 	streamID, err := s.ResolveStreamID(ctx, id.Domain, id.Stream)
 	if err != nil {
 		return 0, err

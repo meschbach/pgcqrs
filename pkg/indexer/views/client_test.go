@@ -37,7 +37,7 @@ type testEvent struct {
 
 // setupClientWithEvents creates a client and submits numEvents events,
 // waiting for them to be processed before returning.
-func setupClientWithEvents(t *testing.T, numEvents int) (context.Context, *Client, *v1.Stream) {
+func setupClientWithEvents(t *testing.T, numEvents int) (context.Context, ProjectionClient, *v1.Stream) {
 	t.Helper()
 	transport := v1.NewMemoryTransport()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
@@ -57,7 +57,7 @@ func setupClientWithEvents(t *testing.T, numEvents int) (context.Context, *Clien
 		}),
 	)
 
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 	t.Cleanup(func() {
 		require.NoError(t, client.Close())
@@ -88,8 +88,9 @@ func TestClientGetNotFound(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
+	sys := v1.NewSystem(transport)
 	proj := NewProjection("domain", "stream")
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, client.Close())
@@ -131,8 +132,9 @@ func TestClientGetUntilVersionWaitsForNilEntity(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
+	sys := v1.NewSystem(transport)
 	proj := NewProjection("domain", "stream")
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, client.Close())
@@ -177,20 +179,24 @@ func TestClientOnChange(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
+	sys := v1.NewSystem(transport)
 	proj := NewProjection("domain", "stream")
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, client.Close())
 	}()
+	memClient, ok := client.(*Client[*v1.MemoryLock])
+	require.True(t, ok)
 
 	var changes []Change
-	client.OnChange(func(c Change) {
+	client.OnChange(func(_ context.Context, c Change) error {
 		changes = append(changes, c)
+		return nil
 	})
 
 	// Trigger a notification
-	client.notifier.Notify(Change{Version: 1, Upserts: []Upsert{{Kind: "items", Key: NewKey("item-1"), Value: "data"}}})
+	require.NoError(t, memClient.notifier.Emit(ctx, Change{Version: 1, Upserts: []Upsert{{Kind: "items", Key: NewKey("item-1"), Value: "data"}}}))
 
 	require.Len(t, changes, 1)
 	assert.Equal(t, int64(1), changes[0].Version)
@@ -202,8 +208,9 @@ func TestClientClose(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
+	sys := v1.NewSystem(transport)
 	proj := NewProjection("domain", "stream")
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 
 	err = client.Close()
@@ -216,24 +223,28 @@ func TestClientOnChangeUnsubscribe(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
+	sys := v1.NewSystem(transport)
 	proj := NewProjection("domain", "stream")
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, client.Close())
 	}()
+	memClient, ok := client.(*Client[*v1.MemoryLock])
+	require.True(t, ok)
 
 	var changes []Change
-	unsub := client.OnChange(func(c Change) {
+	unsub := client.OnChange(func(_ context.Context, c Change) error {
 		changes = append(changes, c)
+		return nil
 	})
 
-	client.notifier.Notify(Change{Version: 1})
+	require.NoError(t, memClient.notifier.Emit(ctx, Change{Version: 1}))
 	require.Len(t, changes, 1)
 
 	unsub()
 
-	client.notifier.Notify(Change{Version: 2})
+	require.NoError(t, memClient.notifier.Emit(ctx, Change{Version: 2}))
 	assert.Len(t, changes, 1, "callback should not receive after unsubscribe")
 }
 
@@ -243,28 +254,33 @@ func TestClientOnChangeUnsubscribeDoesNotAffectOthers(t *testing.T) {
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
+	sys := v1.NewSystem(transport)
 	proj := NewProjection("domain", "stream")
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 	defer func() {
 		require.NoError(t, client.Close())
 	}()
+	memClient, ok := client.(*Client[*v1.MemoryLock])
+	require.True(t, ok)
 
 	var changes1, changes2 []Change
-	unsub1 := client.OnChange(func(c Change) {
+	unsub1 := client.OnChange(func(_ context.Context, c Change) error {
 		changes1 = append(changes1, c)
+		return nil
 	})
-	client.OnChange(func(c Change) {
+	client.OnChange(func(_ context.Context, c Change) error {
 		changes2 = append(changes2, c)
+		return nil
 	})
 
-	client.notifier.Notify(Change{Version: 1})
+	require.NoError(t, memClient.notifier.Emit(ctx, Change{Version: 1}))
 	require.Len(t, changes1, 1)
 	require.Len(t, changes2, 1)
 
 	unsub1()
 
-	client.notifier.Notify(Change{Version: 2})
+	require.NoError(t, memClient.notifier.Emit(ctx, Change{Version: 2}))
 	assert.Len(t, changes1, 1, "unsubscribed callback should not receive")
 	assert.Len(t, changes2, 2, "other callback should still receive")
 }
@@ -303,7 +319,7 @@ func TestClientGetUntilVersionStoreAlreadyAtTarget(t *testing.T) {
 		}),
 	)
 
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, client.Close()) })
 
@@ -331,21 +347,24 @@ func TestClientGetUntilVersionStoreAlreadyAtTarget(t *testing.T) {
 	assert.Equal(t, int64(1), entity.Version, "the-foo was last updated by event 1")
 }
 
-func TestConnectMemoryCreatesClient(t *testing.T) {
+func TestWithMemorySystem(t *testing.T) {
 	t.Parallel()
 	transport := v1.NewMemoryTransport()
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
 
+	sys := v1.NewSystem(transport)
 	proj := NewProjection("domain", "stream")
-	client, err := ConnectMemory(ctx, transport, proj)
+	client, err := With(ctx, sys, proj)
 	require.NoError(t, err)
 	require.NotNil(t, client)
 	defer func() {
 		require.NoError(t, client.Close())
 	}()
 
-	assert.NotNil(t, client.store)
-	assert.NotNil(t, client.notifier)
-	assert.NotNil(t, client.pump)
+	concrete, ok := client.(*Client[*v1.MemoryLock])
+	require.True(t, ok)
+	assert.NotNil(t, concrete.store)
+	assert.NotNil(t, concrete.notifier)
+	assert.NotNil(t, concrete.pump)
 }

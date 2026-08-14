@@ -154,12 +154,13 @@ func TestNotifierCallbacks(t *testing.T) {
 	t.Parallel()
 	n := NewNotifier()
 	var received []Change
-	n.OnChange(func(c Change) {
+	n.OnChange(func(_ context.Context, c Change) error {
 		received = append(received, c)
+		return nil
 	})
 
-	n.Notify(Change{Version: 1})
-	n.Notify(Change{Version: 2})
+	require.NoError(t, n.Emit(t.Context(), Change{Version: 1}))
+	require.NoError(t, n.Emit(t.Context(), Change{Version: 2}))
 
 	require.Len(t, received, 2)
 	assert.Equal(t, int64(1), received[0].Version)

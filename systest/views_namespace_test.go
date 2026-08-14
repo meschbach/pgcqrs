@@ -63,17 +63,13 @@ func TestProjectionNamespaceIsolation(t *testing.T) {
 		views.OnKind("ItemCreated", handler),
 	)
 
-	clientA, err := connectProjection(harness.ctx, t, harness, projA)
+	clientA, err := connectProjection(harness.ctx, harness, projA)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, clientA.Close())
-	}()
+	t.Cleanup(func() { closeClient(t, clientA) })
 
-	clientB, err := connectProjection(harness.ctx, t, harness, projB)
+	clientB, err := connectProjection(harness.ctx, harness, projB)
 	require.NoError(t, err)
-	defer func() {
-		require.NoError(t, clientB.Close())
-	}()
+	t.Cleanup(func() { closeClient(t, clientB) })
 
 	// Submit event to stream A only
 	result := harness.stream.MustSubmit(harness.ctx, "ItemCreated", ItemCreated{ItemID: "item-1", Name: "from-stream-a"})
@@ -103,10 +99,10 @@ func TestProjectionNamespaceIsolation(t *testing.T) {
 	// Versions should be independently tracked on gRPC (memory transport has a
 	// known limitation where event IDs are not propagated through TickWithID)
 	if os.Getenv("PGCQRS_TEST_TRANSPORT") == "grpc" {
-		versionA, err := clientA.Version(harness.ctx)
-		require.NoError(t, err)
-		versionB, err := clientB.Version(harness.ctx)
-		require.NoError(t, err)
+		// The pump advances consumer_positions via heartbeat after the KV write, so
+		// poll for the version rather than asserting it immediately.
+		versionA := waitForPositiveVersion(harness.ctx, t, clientA)
+		versionB := waitForPositiveVersion(harness.ctx, t, clientB)
 		assert.Positive(t, versionA, "stream A's projection should have a non-zero version")
 		assert.Positive(t, versionB, "stream B's projection should have a non-zero version")
 	}

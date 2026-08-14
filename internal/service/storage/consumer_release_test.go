@@ -25,10 +25,10 @@ func TestConsumerStore_Release(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		err = store.Release(ctx, domain, stream, consumer, holder)
+		_, err = store.Release(ctx, domain, stream, consumer, holder)
 		require.NoError(t, err)
 
 		state, found, err := store.GetLock(ctx, domain, stream, consumer)
@@ -43,7 +43,7 @@ func TestConsumerStore_Release(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		err := store.Release(ctx, domain, stream, consumer, holder)
+		_, err := store.Release(ctx, domain, stream, consumer, holder)
 		require.NoError(t, err)
 	})
 
@@ -53,11 +53,11 @@ func TestConsumerStore_Release(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
 		otherHolder := faker.Word()
-		err = store.Release(ctx, domain, stream, consumer, otherHolder)
+		_, err = store.Release(ctx, domain, stream, consumer, otherHolder)
 		require.Error(t, err)
 		var lockNotHeld *v1.LockNotHeldError
 		require.ErrorAs(t, err, &lockNotHeld)

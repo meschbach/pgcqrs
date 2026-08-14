@@ -45,10 +45,16 @@ func (m *MemoryStore) Get(_ context.Context, kind string, key Key) (*Entity, err
 	return e, nil
 }
 
-// Persist applies mutations atomically and returns a Change describing what was written.
+// Persist applies mutations atomically and returns a Change describing what was
+// written. A nil result is treated as an empty result: the projection version
+// still advances to eventID.
 func (m *MemoryStore) Persist(_ context.Context, result *ReduceResult, eventID int64) (*Change, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	if result == nil {
+		result = &ReduceResult{}
+	}
 
 	change := &Change{
 		Version: eventID,

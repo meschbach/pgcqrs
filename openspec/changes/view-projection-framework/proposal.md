@@ -30,11 +30,11 @@ production, and gRPC for remote access — transparently.
 - `ReduceContext` struct passed to handlers, providing previous-state retrieval (`Get`) and room for future expansion
 - `Key` variadic type for entity keys: single-key for the common case, two-level composite keys when needed
 - `Notifier` type: local in-process callback registry for change notifications, used by `OnChange` and `UntilVersion`
-- `Connect` / `ConnectMemory` client framework: builds Wire + Transport from same connection, creates Notifier,
-  builds Pump, handles lifecycle, exposes Get/Version/OnChange API
+- `With` client framework: runs a projection against a `*v1.System`, building Wire + Transport from the system's transport,
+  creating Notifier, builds Pump, handles lifecycle, exposes Get/Version/OnChange API
 - `UntilVersion` uses notification (subscribes to Notifier), not polling — zero extra database queries
 - `ViewProjectionStore` gRPC service: narrow KV storage service (ApplyMutations, GetEntity) in pgcqrs, used by the Pump for mutations and previous-state reads
-- `ViewProjectionConsumer` gRPC service: read API (GetEntity, GetVersion, WatchChanges) in pgcqrs for webapps and downstream indexers
+- `ViewProjectionConsumer` gRPC service: read API (GetEntity, Version, WatchChanges) in pgcqrs for webapps and downstream indexers
 - Storage in pgcqrs database for projected entity state (two-table schema: single-key and composite-key)
 - Integration with existing consumer locks for exclusive access
 - Integration with existing consumer position tracking for resumable projections
@@ -50,12 +50,12 @@ production, and gRPC for remote access — transparently.
 - `indexer-core`: Core indexer framework at `pkg/indexer/` providing Pump loop, Indexer interface (`Query() *query2.Query`),
   Wire interface for pgcqrs connection, and Lock interface for heartbeating
 - `view-projection-framework`: Views indexer at `pkg/indexer/views/` providing `OnKind[T]` typed handler registration,
-  `ReduceContext` for previous-state retrieval, `Connect`/`ConnectMemory` client framework,
+  `ReduceContext` for previous-state retrieval, `With` client framework,
   and pgcqrs-backed KV storage for projected entity state
 - `view-projection-store`: gRPC ViewProjectionStore in the pgcqrs service providing KV storage operations
   (ApplyMutations, GetEntity) used by the Pump
 - `view-projection-consumer`: gRPC ViewProjectionConsumer in the pgcqrs service providing remote access
-  to projections (GetEntity, GetVersion, WatchChanges) for webapps and external services
+  to projections (GetEntity, Version, WatchChanges) for webapps and external services
 
 ### Modified Capabilities
 

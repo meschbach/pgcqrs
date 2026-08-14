@@ -25,7 +25,7 @@ func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
 		before, foundBefore, err := store.GetLock(ctx, domain, stream, consumer)
@@ -55,7 +55,7 @@ func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
 		store := NewConsumerStore(pool)
 		createStreamForTest(ctx, t, pool, domain, stream)
 
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
 		err = store.HeartbeatWithPosition(ctx, domain, stream, consumer, holder, 100)
@@ -106,7 +106,7 @@ func TestConsumerStore_HeartbeatWithPosition(t *testing.T) {
 		createStreamForTest(ctx, t, pool, domain, stream)
 
 		// Acquire lock with holder1
-		_, err := store.TryAcquire(ctx, domain, stream, consumer, "holder1", 30*time.Second)
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, "holder1", 30*time.Second)
 		require.NoError(t, err)
 
 		// Try to heartbeat with holder2 (different from holder1)

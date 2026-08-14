@@ -50,6 +50,14 @@ func (e *OperationError) Unwrap() error {
 	return e.Underlying
 }
 
+// LockReleasedInfo contains information about a lock that was released.
+type LockReleasedInfo struct {
+	Domain   string
+	Stream   string
+	Consumer string
+	Holder   string
+}
+
 // ConsumerStore provides storage operations for consumer locks and positions.
 // It consolidates PositionStore functionality with lock lifecycle operations.
 type ConsumerStore struct {
@@ -138,7 +146,7 @@ func lockAttrSet(domain, stream, consumer string) attribute.Set {
 // TryAcquire attempts to acquire an exclusive lock for a consumer on a stream.
 // Returns a LockResult indicating whether the lock was acquired and, if not,
 // who currently holds it.
-func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (out *v1.LockResult, retErr error) {
+func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (out *v1.LockResult, expired []LockReleasedInfo, retErr error) {
 	ctx, span := tracer.Start(ctx, "consumerStore.TryAcquire", trace.WithAttributes(
 		attribute.String("consumer-lock.domain", domain),
 		attribute.String("consumer-lock.stream", stream),
@@ -152,12 +160,12 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 
 	if ttl < v1.LockMinimumTTL {
 		AcquireFailures.Add(ctx, 1, attrs)
-		return nil, &v1.TTLTooLowError{Provided: ttl, Minimum: v1.LockMinimumTTL}
+		return nil, nil, &v1.TTLTooLowError{Provided: ttl, Minimum: v1.LockMinimumTTL}
 	}
 
 	tx, err := s.pg.Begin(ctx)
 	if err != nil {
-		return nil, &OperationError{Operation: "begin acquire transaction", Underlying: err}
+		return nil, nil, &OperationError{Operation: "begin acquire transaction", Underlying: err}
 	}
 	defer func() {
 		if retErr != nil {
@@ -171,13 +179,13 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 		span.End()
 	}()
 
-	result, err := s.tryAcquireInTx(ctx, tx, domain, stream, consumer, holder, ttl)
+	result, expiredLocks, err := s.tryAcquireInTx(ctx, tx, domain, stream, consumer, holder, ttl)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	if err := tx.Commit(ctx); err != nil {
-		return nil, &OperationError{Operation: "commit acquire", Underlying: err}
+		return nil, nil, &OperationError{Operation: "commit acquire", Underlying: err}
 	}
 
 	if result.Acquired {
@@ -186,7 +194,7 @@ func (s *ConsumerStore) TryAcquire(ctx context.Context, domain, stream, consumer
 	} else {
 		AcquireFailures.Add(ctx, 1, attrs)
 	}
-	return result, nil
+	return result, expiredLocks, nil
 }
 
 // queryConflictHolder retrieves the current holder for a consumer lock within a transaction.
@@ -224,23 +232,23 @@ func (s *ConsumerStore) resolveStreamID(ctx context.Context, tx pgx.Tx, domain, 
 
 // tryAcquireInTx executes the acquire logic within an already-started transaction.
 // Acquires an advisory lock to serialize concurrent callers for the same consumer.
-// Returns the lock result or an error.
-func (s *ConsumerStore) tryAcquireInTx(ctx context.Context, tx pgx.Tx, domain, stream, consumer, holder string, ttl time.Duration) (*v1.LockResult, error) {
+// Returns the lock result, expired lock info, or an error.
+func (s *ConsumerStore) tryAcquireInTx(ctx context.Context, tx pgx.Tx, domain, stream, consumer, holder string, ttl time.Duration) (*v1.LockResult, []LockReleasedInfo, error) {
 	// Advisory lock serializes all TryAcquire calls for the same consumer.
 	// Different consumers are unaffected.
 	_, err := tx.Exec(ctx, `SELECT pg_advisory_xact_lock(hashtext('consumer-lock-' || $1))`, consumer)
 	if err != nil {
-		return nil, &OperationError{Operation: "advisory lock", Underlying: err}
+		return nil, nil, &OperationError{Operation: "advisory lock", Underlying: err}
 	}
 
 	consumerID, err := s.resolveConsumerNameInTx(ctx, tx, consumer)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	streamID, err := s.resolveStreamID(ctx, tx, domain, stream)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	guaranteeUntil := time.Now().Add(time.Duration(float64(ttl) * v1.DefaultGuaranteeFraction))
@@ -263,54 +271,84 @@ func (s *ConsumerStore) tryAcquireInTx(ctx context.Context, tx pgx.Tx, domain, s
 		streamID, consumerID, holder, ttl, guaranteeUntil, heldUntil).Scan(&acquiredHolder)
 
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) {
-		return nil, &OperationError{Operation: "try acquire lock", Underlying: err}
+		return nil, nil, &OperationError{Operation: "try acquire lock", Underlying: err}
 	}
 
 	if acquiredHolder != nil {
-		s.cleanExpiredLocks(ctx, domain, stream, consumerID)
+		expiredLocks := s.cleanExpiredLocks(ctx, domain, stream, consumerID)
 		return &v1.LockResult{
 			Acquired:       true,
 			HeldBy:         holder,
 			GuaranteeUntil: guaranteeUntil,
 			HeldUntil:      heldUntil,
-		}, nil
+		}, expiredLocks, nil
 	}
 
 	currentHolder, err := s.queryConflictHolder(ctx, tx, streamID, consumerID)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 	return &v1.LockResult{
 		Acquired:       false,
 		HeldBy:         currentHolder,
 		GuaranteeUntil: guaranteeUntil,
 		HeldUntil:      heldUntil,
-	}, nil
+	}, nil, nil
 }
 
 // cleanExpiredLocks removes up to 128 expired lock rows in the same (domain, stream) partition.
+// Returns information about the expired locks that were cleaned up.
 // Errors are logged as span events but do not fail the caller.
-func (s *ConsumerStore) cleanExpiredLocks(ctx context.Context, domain, stream string, excludeConsumerID int64) {
-	tag, cleanupErr := s.pg.Exec(ctx, `
-		DELETE FROM consumer_locks
-		WHERE ctid IN (
-			SELECT cl.ctid
-			FROM consumer_locks cl
-			JOIN events_stream es ON cl.stream_id = es.id
-			WHERE es.app = $1 AND es.stream = $2
-			  AND cl.held_until < NOW()
-			  AND cl.consumer_id != $3
-			LIMIT 128
-		)`, domain, stream, excludeConsumerID)
-	if cleanupErr != nil {
+func (s *ConsumerStore) cleanExpiredLocks(ctx context.Context, domain, stream string, excludeConsumerID int64) []LockReleasedInfo {
+	var expiredLocks []LockReleasedInfo
+
+	rows, err := s.pg.Query(ctx, `
+		WITH deleted AS (
+			DELETE FROM consumer_locks
+			WHERE ctid IN (
+				SELECT cl.ctid
+				FROM consumer_locks cl
+				JOIN events_stream es ON cl.stream_id = es.id
+				WHERE es.app = $1 AND es.stream = $2
+				  AND cl.held_until < NOW()
+				  AND cl.consumer_id != $3
+				LIMIT 128
+			)
+			RETURNING consumer_id, holder
+		)
+		SELECT d.consumer_id, d.holder, cn.name
+		FROM deleted d
+		JOIN consumer_names cn ON d.consumer_id = cn.id`, domain, stream, excludeConsumerID)
+	if err != nil {
 		trace.SpanFromContext(ctx).AddEvent("cleanup.expired_locks_failed", trace.WithAttributes(
-			attribute.String("consumer-lock.error", cleanupErr.Error()),
+			attribute.String("consumer-lock.error", err.Error()),
 		))
-		return
+		return nil
 	}
-	if tag.RowsAffected() > 0 {
-		CleanupDeleted.Add(ctx, tag.RowsAffected(), metric.WithAttributeSet(lockAttrSet(domain, stream, "")))
+	defer rows.Close()
+
+	for rows.Next() {
+		var consumerID int64
+		var holder, consumerName string
+		if err := rows.Scan(&consumerID, &holder, &consumerName); err != nil {
+			trace.SpanFromContext(ctx).AddEvent("cleanup.expired_locks_scan_failed", trace.WithAttributes(
+				attribute.String("consumer-lock.error", err.Error()),
+			))
+			continue
+		}
+		expiredLocks = append(expiredLocks, LockReleasedInfo{
+			Domain:   domain,
+			Stream:   stream,
+			Consumer: consumerName,
+			Holder:   holder,
+		})
 	}
+
+	if len(expiredLocks) > 0 {
+		CleanupDeleted.Add(ctx, int64(len(expiredLocks)), metric.WithAttributeSet(lockAttrSet(domain, stream, "")))
+	}
+
+	return expiredLocks
 }
 
 type releaseLockInfo struct {
@@ -359,7 +397,8 @@ func (s *ConsumerStore) deleteLockAndRecordMetrics(ctx context.Context, domain, 
 // The operation is idempotent for expired or non-existent locks — releasing
 // a lock that doesn't exist returns success. However, if the lock exists and
 // is held by a different holder, an error is returned.
-func (s *ConsumerStore) Release(ctx context.Context, domain, stream, consumer, holder string) (retErr error) {
+// Returns information about the released lock if successful.
+func (s *ConsumerStore) Release(ctx context.Context, domain, stream, consumer, holder string) (released *LockReleasedInfo, retErr error) {
 	ctx, span := tracer.Start(ctx, "consumerStore.Release", trace.WithAttributes(
 		attribute.String("consumer-lock.domain", domain),
 		attribute.String("consumer-lock.stream", stream),
@@ -373,28 +412,63 @@ func (s *ConsumerStore) Release(ctx context.Context, domain, stream, consumer, h
 		span.End()
 	}()
 
-	consumerID, err := s.resolveConsumerName(ctx, consumer)
-	if err != nil {
-		return err
+	if err := validateReleaseParams(domain, stream, consumer, holder); err != nil {
+		return nil, err
 	}
 
-	info, err := s.queryActiveLock(ctx, domain, stream, consumerID)
+	consumerID, err := s.resolveConsumerName(ctx, consumer)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	info, err := s.queryAndValidateLock(ctx, domain, stream, consumerID, consumer, holder)
+	if err != nil {
+		return nil, err
 	}
 	if info == nil {
-		return nil
+		return nil, nil
+	}
+
+	if err := s.deleteLockAndRecordMetrics(ctx, domain, stream, consumer, consumerID, info.acquiredAt); err != nil {
+		return nil, err
+	}
+
+	return &LockReleasedInfo{
+		Domain:   domain,
+		Stream:   stream,
+		Consumer: consumer,
+		Holder:   holder,
+	}, nil
+}
+
+// validateReleaseParams rejects empty parameters rather than silently
+// succeeding, which masks callers that pass an unbound or missing lock context.
+func validateReleaseParams(domain, stream, consumer, holder string) error {
+	if domain == "" || stream == "" || consumer == "" || holder == "" {
+		return fmt.Errorf("invalid parameters: domain, stream, consumer, and holder are required")
+	}
+	return nil
+}
+
+// queryAndValidateLock loads the active lock for a consumer and verifies it is
+// held by the expected holder. A nil result means the lock does not exist.
+func (s *ConsumerStore) queryAndValidateLock(ctx context.Context, domain, stream string, consumerID int64, consumer, holder string) (*releaseLockInfo, error) {
+	info, err := s.queryActiveLock(ctx, domain, stream, consumerID)
+	if err != nil {
+		return nil, err
+	}
+	if info == nil {
+		return nil, nil
 	}
 	if info.holder != holder {
-		return &v1.LockNotHeldError{
+		return nil, &v1.LockNotHeldError{
 			Consumer: consumer,
 			Holder:   holder,
 			Domain:   domain,
 			Stream:   stream,
 		}
 	}
-
-	return s.deleteLockAndRecordMetrics(ctx, domain, stream, consumer, consumerID, info.acquiredAt)
+	return info, nil
 }
 
 // GetLock returns the current state of a consumer lock.

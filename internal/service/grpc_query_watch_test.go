@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/go-faker/faker/v4"
+	"github.com/jackc/pgx/v5/pgxpool"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
-	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"google.golang.org/grpc/metadata"

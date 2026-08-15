@@ -208,17 +208,22 @@ func TestGRPCWaitForLock_BlocksUntilReleased(t *testing.T) {
 	wire1 := v1.NewGrpcWire(conn1)
 	wire2 := v1.NewGrpcWire(conn2)
 
-	// holder1 acquires the lock
-	lock1, _, err := wire1.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder1, 30*time.Second)
+	// holder1 acquires the lock and heartbeats a position
+	lock1, pos1, err := wire1.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder1, 30*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, lock1)
+	assert.Equal(t, int64(0), pos1, "fresh consumer should have position 0")
+
+	err = lock1.Heartbeat(harness.ctx, 42)
+	require.NoError(t, err)
 
 	// holder2 tries to acquire - should block
 	done := make(chan error, 1)
 	var lock2 *v1.KeepAlive
+	var pos2 int64
 	go func() {
 		var err error
-		lock2, _, err = wire2.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder2, 30*time.Second)
+		lock2, pos2, err = wire2.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder2, 30*time.Second)
 		done <- err
 	}()
 
@@ -229,11 +234,12 @@ func TestGRPCWaitForLock_BlocksUntilReleased(t *testing.T) {
 	err = lock1.Release(harness.ctx)
 	require.NoError(t, err)
 
-	// holder2 should now have acquired the lock
+	// holder2 should now have acquired the lock with holder1's last position
 	select {
 	case err := <-done:
 		require.NoError(t, err)
 		require.NotNil(t, lock2)
+		assert.Equal(t, int64(42), pos2, "holder2 should receive holder1's last heartbeat position")
 		err = lock2.Release(harness.ctx)
 		require.NoError(t, err)
 	case <-time.After(10 * time.Second):

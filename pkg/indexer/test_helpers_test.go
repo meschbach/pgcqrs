@@ -20,10 +20,10 @@ func newMockTransport() *mockTransport {
 func (m *mockTransport) TryAcquire(_ context.Context, domain, stream, consumer, holder string, _ time.Duration) (*v1.LockResult, error) {
 	key := domain + "/" + stream + "/" + consumer
 	if m.locks[key] {
-		return &v1.LockResult{Acquired: false, HeldBy: "other-holder"}, nil
+		return &v1.LockResult{Acquired: false, HeldBy: "other-holder", Position: -1}, nil
 	}
 	m.locks[key] = true
-	return &v1.LockResult{Acquired: true, HeldBy: holder}, nil
+	return &v1.LockResult{Acquired: true, HeldBy: holder, Position: 0}, nil
 }
 
 func (m *mockTransport) Release(_ context.Context, domain, stream, consumer, _ string) error {
@@ -80,17 +80,13 @@ func (w *mockWire) WaitForLock(ctx context.Context, domain, stream, consumer, ho
 	if !result.Acquired {
 		return nil, 0, context.DeadlineExceeded
 	}
-	position, _, err := w.transport.GetPosition(ctx, domain, stream, consumer)
-	if err != nil {
-		return nil, 0, err
-	}
 	return &mockLock{
 		transport: w.transport,
 		domain:    domain,
 		stream:    stream,
 		consumer:  consumer,
 		holder:    holder,
-	}, position, nil
+	}, result.Position, nil
 }
 
 type testIndexer struct {

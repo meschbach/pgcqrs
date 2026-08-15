@@ -529,6 +529,7 @@ func (g *GrpcAdapter) TryAcquire(ctx context.Context, domain, stream, consumer, 
 	result := &LockResult{
 		Acquired: resp.Acquired,
 		HeldBy:   resp.HeldBy,
+		Position: resp.GetPosition(),
 	}
 	if resp.GuaranteeUntil != nil {
 		result.GuaranteeUntil = resp.GuaranteeUntil.AsTime()

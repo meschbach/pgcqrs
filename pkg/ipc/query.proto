@@ -349,6 +349,9 @@ message TryAcquireOut {
   string held_by = 2;
   google.protobuf.Timestamp guarantee_until = 3;
   google.protobuf.Timestamp held_until = 4;
+  // position is the consumer's current stream position when acquired=true;
+  // -1 otherwise (not applicable).
+  int64 position = 5;
 }
 
 message ReleaseIn {
@@ -432,6 +435,8 @@ message WaitForLockRequest {
 
 // LockGranted is returned when a lock is successfully acquired via WaitForLock.
 message LockGranted {
+  // position is the consumer's stored position; 0 = no position recorded
+  // (start from the beginning of the stream).
   int64 position = 1;
   int64 heartbeat_interval_ms = 2;
   int64 deadline_ms = 3;

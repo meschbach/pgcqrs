@@ -572,3 +572,55 @@ func TestMemoryClockInjection(t *testing.T) {
 		require.ErrorAs(t, err, &lockErr)
 	})
 }
+
+func TestMemoryTryAcquire_PositionInvariant(t *testing.T) {
+	t.Parallel()
+
+	domain := faker.Word()
+	stream := faker.Word()
+	consumer := faker.Word()
+	holder1 := faker.Word()
+	holder2 := faker.Word()
+
+	t.Run("AcquiredReturnsPositionGteZero", func(t *testing.T) {
+		t.Parallel()
+		m := newTestMemory(t)
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		result, err := m.TryAcquire(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		require.NoError(t, err)
+		require.True(t, result.Acquired)
+		assert.GreaterOrEqual(t, result.Position, int64(0), "acquired result must have Position >= 0")
+	})
+
+	t.Run("ConflictReturnsSentinel", func(t *testing.T) {
+		t.Parallel()
+		m := newTestMemory(t)
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		require.NoError(t, err)
+
+		result, err := m.TryAcquire(ctx, domain, stream, consumer, holder2, 30*time.Second)
+		require.NoError(t, err)
+		require.False(t, result.Acquired)
+		assert.Equal(t, int64(-1), result.Position, "conflict must return sentinel -1")
+	})
+
+	t.Run("AcquiredReturnsStoredPosition", func(t *testing.T) {
+		t.Parallel()
+		m := newTestMemory(t)
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		_, err := m.SetPosition(ctx, domain, stream, consumer, 77)
+		require.NoError(t, err)
+
+		result, err := m.TryAcquire(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		require.NoError(t, err)
+		require.True(t, result.Acquired)
+		assert.Equal(t, int64(77), result.Position, "acquired result must return stored position")
+	})
+}

@@ -215,6 +215,22 @@ func (s *ConsumerStore) queryConflictHolder(ctx context.Context, tx pgx.Tx, stre
 	return holder, nil
 }
 
+// queryPositionInTx reads the consumer's current position within a transaction.
+// Returns 0 when no position is recorded. The predicate mirrors GetPosition to
+// cover legacy rows where consumer_id is NULL (pre-migration).
+func (s *ConsumerStore) queryPositionInTx(ctx context.Context, tx pgx.Tx, streamID, consumerID int64, consumer string) (int64, error) {
+	var position int64
+	err := tx.QueryRow(ctx, `
+		SELECT COALESCE(MAX(event_id), 0) FROM consumer_positions
+		WHERE stream_id = $1
+		  AND (consumer_id = $2 OR (consumer_id IS NULL AND consumer = $3))`,
+		streamID, consumerID, consumer).Scan(&position)
+	if err != nil {
+		return 0, &OperationError{Operation: "query position in acquire", Underlying: err}
+	}
+	return position, nil
+}
+
 // resolveStreamID returns the numeric ID for a domain/stream pair within a transaction.
 func (s *ConsumerStore) resolveStreamID(ctx context.Context, tx pgx.Tx, domain, stream string) (int64, error) {
 	var streamID int64
@@ -275,13 +291,7 @@ func (s *ConsumerStore) tryAcquireInTx(ctx context.Context, tx pgx.Tx, domain, s
 	}
 
 	if acquiredHolder != nil {
-		expiredLocks := s.cleanExpiredLocks(ctx, domain, stream, consumerID)
-		return &v1.LockResult{
-			Acquired:       true,
-			HeldBy:         holder,
-			GuaranteeUntil: guaranteeUntil,
-			HeldUntil:      heldUntil,
-		}, expiredLocks, nil
+		return s.buildAcquiredResult(ctx, tx, domain, stream, consumer, holder, streamID, consumerID, guaranteeUntil, heldUntil)
 	}
 
 	currentHolder, err := s.queryConflictHolder(ctx, tx, streamID, consumerID)
@@ -293,7 +303,25 @@ func (s *ConsumerStore) tryAcquireInTx(ctx context.Context, tx pgx.Tx, domain, s
 		HeldBy:         currentHolder,
 		GuaranteeUntil: guaranteeUntil,
 		HeldUntil:      heldUntil,
+		Position:       -1,
 	}, nil, nil
+}
+
+// buildAcquiredResult constructs the LockResult for a successful acquisition,
+// including cleaning up expired locks and querying the current position.
+func (s *ConsumerStore) buildAcquiredResult(ctx context.Context, tx pgx.Tx, domain, stream, consumer, holder string, streamID, consumerID int64, guaranteeUntil, heldUntil time.Time) (*v1.LockResult, []LockReleasedInfo, error) {
+	expiredLocks := s.cleanExpiredLocks(ctx, domain, stream, consumerID)
+	position, err := s.queryPositionInTx(ctx, tx, streamID, consumerID, consumer)
+	if err != nil {
+		return nil, nil, err
+	}
+	return &v1.LockResult{
+		Acquired:       true,
+		HeldBy:         holder,
+		GuaranteeUntil: guaranteeUntil,
+		HeldUntil:      heldUntil,
+		Position:       position,
+	}, expiredLocks, nil
 }
 
 // cleanExpiredLocks removes up to 128 expired lock rows in the same (domain, stream) partition.

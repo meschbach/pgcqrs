@@ -142,3 +142,70 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 		assert.Equal(t, "holder-new", result.HeldBy)
 	})
 }
+
+func TestConsumerStore_TryAcquire_Position(t *testing.T) {
+	t.Parallel()
+
+	ctx := t.Context()
+	domain := domainUniqueness.Next()
+	stream := faker.Word()
+	consumer := faker.Word()
+	holder := faker.Word()
+
+	t.Run("FreshAcquireReturnsZero", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		result, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.True(t, result.Acquired)
+		assert.Equal(t, int64(0), result.Position, "fresh consumer should have position 0")
+	})
+
+	t.Run("ConflictReturnsSentinel", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		require.NoError(t, err)
+
+		result, _, err := store.TryAcquire(ctx, domain, stream, consumer, "other-holder", 30*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.False(t, result.Acquired)
+		assert.Equal(t, int64(-1), result.Position, "conflict should return sentinel -1")
+	})
+
+	t.Run("AcquireReturnsStoredPosition", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		_, err := store.SetPosition(ctx, domain, stream, consumer, 42)
+		require.NoError(t, err)
+
+		result, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, result)
+		assert.True(t, result.Acquired)
+		assert.Equal(t, int64(42), result.Position, "acquire should return stored position")
+	})
+
+	t.Run("AcquiredPositionInvariant", func(t *testing.T) {
+		t.Parallel()
+		pool := WithDatabaseConnection(t)
+		store := NewConsumerStore(pool)
+		createStreamForTest(ctx, t, pool, domain, stream)
+
+		result, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
+		require.NoError(t, err)
+		require.True(t, result.Acquired)
+		assert.GreaterOrEqual(t, result.Position, int64(0), "acquired result must have Position >= 0")
+	})
+}

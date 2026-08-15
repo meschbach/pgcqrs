@@ -78,17 +78,13 @@ func (m *MemoryWire) tryAcquireWithPosition(ctx context.Context, domain, stream,
 	if !result.Acquired {
 		return nil, 0, false, nil
 	}
-	position, _, err = m.GetPosition(ctx, domain, stream, consumer)
-	if err != nil {
-		return nil, 0, false, err
-	}
 	return &MemoryLock{
 		transport: m.Transport,
 		domain:    domain,
 		stream:    stream,
 		consumer:  consumer,
 		holder:    holder,
-	}, position, true, nil
+	}, result.Position, true, nil
 }
 
 // waitForRelease blocks until the consumer's lock is released or the context

@@ -810,6 +810,7 @@ func (m *memory) tryAcquireInternal(domain, stream, consumer, holder string, ttl
 			HeldBy:         existing.holder,
 			GuaranteeUntil: existing.guaranteeUntil,
 			HeldUntil:      existing.heldUntil,
+			Position:       -1,
 		}, nil
 	}
 
@@ -834,11 +835,17 @@ func (m *memory) tryAcquireInternal(domain, stream, consumer, holder string, ttl
 	})
 	m.setLock(domain, stream, consumer, newState)
 
+	var position int64
+	if streamPositions, ok := m.positions[m.positionKey(domain, stream, consumer)]; ok {
+		position = streamPositions[consumer]
+	}
+
 	return &LockResult{
 		Acquired:       true,
 		HeldBy:         holder,
 		GuaranteeUntil: guaranteeUntil,
 		HeldUntil:      heldUntil,
+		Position:       position,
 	}, expiredEvents
 }
 

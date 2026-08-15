@@ -54,6 +54,7 @@ func (g *grpcConsumerLock) TryAcquire(ctx context.Context, in *ipc.TryAcquireIn)
 		HeldBy:         result.HeldBy,
 		GuaranteeUntil: timestamppb.New(result.GuaranteeUntil),
 		HeldUntil:      timestamppb.New(result.HeldUntil),
+		Position:       result.Position,
 	}
 	return out, nil
 }
@@ -566,7 +567,7 @@ func (g *grpcConsumerLock) WaitForLock(req *ipc.WaitForLockRequest, stream grpc.
 		return err
 	}
 	if result.Acquired {
-		return g.grantLock(stream, ttl)
+		return g.grantLock(stream, result.Position, ttl)
 	}
 
 	// Lock is held by someone else, wait for a release notification
@@ -590,7 +591,7 @@ func (g *grpcConsumerLock) waitForGrant(ctx context.Context, stream grpc.ServerS
 				return err
 			}
 			if result.Acquired {
-				return g.grantLock(stream, ttl)
+				return g.grantLock(stream, result.Position, ttl)
 			}
 			// Still not acquired, continue waiting
 		}
@@ -629,11 +630,11 @@ func (g *grpcConsumerLock) acquireLock(ctx context.Context, domain, stream, cons
 }
 
 // grantLock sends a LockGranted response with the heartbeat interval derived
-// from the lock TTL.
-func (g *grpcConsumerLock) grantLock(stream grpc.ServerStreamingServer[ipc.LockGranted], ttl time.Duration) error {
+// from the lock TTL and the consumer's stored position.
+func (g *grpcConsumerLock) grantLock(stream grpc.ServerStreamingServer[ipc.LockGranted], position int64, ttl time.Duration) error {
 	heartbeatInterval := time.Duration(float64(ttl) * v1.DefaultGuaranteeFraction)
 	return stream.Send(&ipc.LockGranted{
-		Position:            0, // Position will be set by client from GetPosition
+		Position:            position,
 		HeartbeatIntervalMs: heartbeatInterval.Milliseconds(),
 		DeadlineMs:          ttl.Milliseconds(),
 	})

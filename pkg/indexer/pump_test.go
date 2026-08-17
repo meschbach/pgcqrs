@@ -171,7 +171,7 @@ func TestNewPumpWithOptions(t *testing.T) {
 	assert.Equal(t, 60*time.Second, pump.opts.ttl)
 }
 
-// mockIndexer is a test double for Indexer with no OnKind handlers.
+// mockIndexer is a test double for Indexer with a minimal query.
 // Events submitted to the stream will NOT be delivered to the pump.
 // Use recordingIndexer for tests that need events to be processed.
 type mockIndexer struct {
@@ -179,7 +179,11 @@ type mockIndexer struct {
 }
 
 func (m *mockIndexer) Query() *query2.Query {
-	return query2.NewQuery(m.stream)
+	q := query2.NewQuery(m.stream)
+	q.OnKind("TestEvent").Each(func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
+		return nil
+	})
+	return q
 }
 
 // failingIndexer is a test double whose handler always returns an error.

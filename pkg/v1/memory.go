@@ -490,6 +490,9 @@ func (m *memory) processEnvelopeForIDs(parent context.Context, domain, stream st
 }
 
 func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, error) {
+	if err := ValidateQuery(query); err != nil {
+		return nil, err
+	}
 	pendingEvents := make(chan int64, 128)
 
 	initSetup := &errgroup.Group{}

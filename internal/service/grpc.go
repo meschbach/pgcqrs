@@ -187,7 +187,7 @@ func buildQueryOps(events *ipc.DomainStream, in *ipc.QueryIn) ([]storage2.Operat
 	}
 
 	if len(ops) == 0 {
-		return nil, nil
+		return nil, &v1.EmptyQueryError{}
 	}
 	return ops, nil
 }

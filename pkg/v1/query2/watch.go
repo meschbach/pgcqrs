@@ -3,6 +3,7 @@ package query2
 import (
 	"context"
 	"errors"
+	"fmt"
 	"time"
 
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
@@ -43,6 +44,9 @@ func (w *Watch) TickWithID(ctx context.Context) (int64, error) {
 	var t string
 	if m.Envelope != nil && m.Envelope.When != nil {
 		t = m.Envelope.When.AsTime().Format(time.RFC3339)
+	}
+	if int(m.Op) < 0 || int(m.Op) >= len(w.handlers.registered) {
+		return 0, fmt.Errorf("no handler registered for operation %d", m.Op)
 	}
 	handler := w.handlers.registered[m.Op]
 	envelope := v1.Envelope{

@@ -12,55 +12,23 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestPump_DedupGuard(t *testing.T) {
+func TestPump_HeartbeatLockLossIsRecoverable(t *testing.T) {
 	t.Parallel()
+	// Verify that a LockNotHeldError wrapped in RecoverableError is classified as recoverable
+	lockErr := &v1.LockNotHeldError{Consumer: "test", Holder: "test", Domain: "d", Stream: "s"}
+	recoverableErr := &RecoverableError{Err: lockErr}
 
-	t.Run("SkipsDuplicateEvents", func(t *testing.T) {
-		t.Parallel()
-		_, stream, pump := newMemoryPumpHarness(t, "domain", "stream")
+	// Direct check
+	assert.True(t, IsRecoverable(recoverableErr))
 
-		for i := 0; i < 3; i++ {
-			_, err := stream.Submit(t.Context(), "TestEvent", map[string]int{"i": i})
-			require.NoError(t, err)
-		}
+	// Wrapped check (simulating what happens in pump.go:250)
+	wrappedErr := fmt.Errorf("heartbeat failed: %w", recoverableErr)
+	assert.True(t, IsRecoverable(wrappedErr))
 
-		err := runPump(t, pump, "domain", "stream", 1*time.Second)
-		assert.Error(t, err)
-	})
-}
-
-func TestPump_HeartbeatBehavior(t *testing.T) {
-	t.Parallel()
-
-	t.Run("HeartbeatConflictUpdatesPosition", func(t *testing.T) {
-		t.Parallel()
-		_, stream, pump := newMemoryPumpHarness(t, "domain", "stream")
-
-		_, err := stream.Submit(t.Context(), "TestEvent", map[string]string{"key": "value"})
-		require.NoError(t, err)
-
-		err = runPump(t, pump, "domain", "stream", 1*time.Second)
-		assert.Error(t, err)
-	})
-
-	t.Run("HeartbeatLockLossIsRecoverable", func(t *testing.T) {
-		t.Parallel()
-		// Verify that a LockNotHeldError wrapped in RecoverableError is classified as recoverable
-		lockErr := &v1.LockNotHeldError{Consumer: "test", Holder: "test", Domain: "d", Stream: "s"}
-		recoverableErr := &RecoverableError{Err: lockErr}
-
-		// Direct check
-		assert.True(t, IsRecoverable(recoverableErr))
-
-		// Wrapped check (simulating what happens in pump.go:250)
-		wrappedErr := fmt.Errorf("heartbeat failed: %w", recoverableErr)
-		assert.True(t, IsRecoverable(wrappedErr))
-
-		// Verify the underlying error is accessible via errors.As
-		var lockNotHeld *v1.LockNotHeldError
-		require.ErrorAs(t, recoverableErr, &lockNotHeld)
-		assert.Equal(t, "test", lockNotHeld.Consumer)
-	})
+	// Verify the underlying error is accessible via errors.As
+	var lockNotHeld *v1.LockNotHeldError
+	require.ErrorAs(t, recoverableErr, &lockNotHeld)
+	assert.Equal(t, "test", lockNotHeld.Consumer)
 }
 
 func TestPump_HandlerErrorRecovery(t *testing.T) {
@@ -79,96 +47,31 @@ func TestPump_HandlerErrorRecovery(t *testing.T) {
 	})
 }
 
-func TestPump_PositionTracking(t *testing.T) {
+func TestPump_WaitsForLockWhenHeldByOther(t *testing.T) {
 	t.Parallel()
+	transport, _, pump := newMemoryPumpHarness(t, "domain", "stream")
 
-	t.Run("PositionUpdatedAfterTick", func(t *testing.T) {
-		t.Parallel()
-		_, stream, pump := newMemoryPumpHarness(t, "domain", "stream")
+	_, err := transport.TryAcquire(t.Context(), "domain", "stream", "consumer", "other-holder", 30*time.Second)
+	require.NoError(t, err)
 
-		_, err := stream.Submit(t.Context(), "TestEvent", map[string]string{"key": "value"})
-		require.NoError(t, err)
-
-		err = runPump(t, pump, "domain", "stream", 1*time.Second)
-		assert.Error(t, err)
-	})
-
-	t.Run("PositionUsedForWatchSetup", func(t *testing.T) {
-		t.Parallel()
-		transport, stream, pump := newMemoryPumpHarness(t, "domain", "stream")
-
-		_, err := transport.SetPosition(t.Context(), "domain", "stream", "consumer", 10)
-		require.NoError(t, err)
-
-		for i := 0; i < 5; i++ {
-			_, err = stream.Submit(t.Context(), "TestEvent", map[string]int{"i": i})
-			require.NoError(t, err)
-		}
-
-		err = runPump(t, pump, "domain", "stream", 1*time.Second)
-		assert.Error(t, err)
-	})
+	err = runPump(t, pump, "domain", "stream", 200*time.Millisecond)
+	assert.ErrorIs(t, err, context.DeadlineExceeded)
 }
 
-func TestPump_LockAcquisition(t *testing.T) {
+func TestPump_ExitsCleanlyOnContextCancel(t *testing.T) {
 	t.Parallel()
+	_, _, pump := newMemoryPumpHarness(t, "domain", "stream")
 
-	t.Run("WaitsForLockWhenHeldByOther", func(t *testing.T) {
-		t.Parallel()
-		transport, _, pump := newMemoryPumpHarness(t, "domain", "stream")
+	runCtx, cancel := context.WithCancel(t.Context())
 
-		_, err := transport.TryAcquire(t.Context(), "domain", "stream", "consumer", "other-holder", 30*time.Second)
-		require.NoError(t, err)
+	done := make(chan error, 1)
+	go func() {
+		done <- pump.RunWithDomainStream(runCtx, "domain", "stream")
+	}()
 
-		err = runPump(t, pump, "domain", "stream", 200*time.Millisecond)
-		assert.ErrorIs(t, err, context.DeadlineExceeded)
-	})
+	time.Sleep(50 * time.Millisecond)
+	cancel()
 
-	t.Run("AcquiresLockWhenAvailable", func(t *testing.T) {
-		t.Parallel()
-		_, stream, pump := newMemoryPumpHarness(t, "domain", "stream")
-
-		_, err := stream.Submit(t.Context(), "TestEvent", map[string]string{"key": "value"})
-		require.NoError(t, err)
-
-		err = runPump(t, pump, "domain", "stream", 1*time.Second)
-		assert.Error(t, err)
-	})
-}
-
-func TestPump_ContextCancellation(t *testing.T) {
-	t.Parallel()
-
-	t.Run("ExitsCleanlyOnContextCancel", func(t *testing.T) {
-		t.Parallel()
-		_, _, pump := newMemoryPumpHarness(t, "domain", "stream")
-
-		runCtx, cancel := context.WithCancel(t.Context())
-
-		done := make(chan error, 1)
-		go func() {
-			done <- pump.RunWithDomainStream(runCtx, "domain", "stream")
-		}()
-
-		time.Sleep(50 * time.Millisecond)
-		cancel()
-
-		err := <-done
-		assert.ErrorIs(t, err, context.Canceled)
-	})
-}
-
-func TestPump_BackoffBehavior(t *testing.T) {
-	t.Parallel()
-
-	t.Run("BackoffResetOnSuccessfulAcquisition", func(t *testing.T) {
-		t.Parallel()
-		_, stream, pump := newMemoryPumpHarness(t, "domain", "stream")
-
-		_, err := stream.Submit(t.Context(), "TestEvent", map[string]string{"key": "value"})
-		require.NoError(t, err)
-
-		err = runPump(t, pump, "domain", "stream", 1*time.Second)
-		assert.Error(t, err)
-	})
+	err := <-done
+	assert.ErrorIs(t, err, context.Canceled)
 }

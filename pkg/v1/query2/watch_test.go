@@ -298,3 +298,75 @@ func TestPumpStopsOnContextCancel(t *testing.T) {
 		t.Fatal("Pump did not stop after context cancellation")
 	}
 }
+
+func TestTickWithID_MissingHandler(t *testing.T) {
+	t.Parallel()
+
+	// Create a Watch with 1 handler (at index 0)
+	mock := &mockWatchInternal{
+		messages: []*ipc.QueryOut{
+			{
+				Op: 99, // out of bounds — no handler at index 99
+				Id: func() *int64 { id := int64(1); return &id }(),
+				Envelope: &ipc.MaterializedEnvelope{
+					Id:   1,
+					When: timestamppb.Now(),
+					Kind: "TestEvent",
+				},
+				Body: nil,
+			},
+		},
+		errors: []error{nil},
+	}
+	w := &Watch{
+		handlers: &handlers{
+			registered: []v1.OnStreamQueryResult{
+				func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
+					t.Fatal("handler should not be called for missing Op")
+					return nil
+				},
+			},
+		},
+		wirePump: mock,
+	}
+
+	id, err := w.TickWithID(t.Context())
+	require.Error(t, err)
+	assert.Equal(t, int64(0), id)
+	assert.Contains(t, err.Error(), "no handler registered for operation 99")
+}
+
+func TestTickWithID_NegativeOp(t *testing.T) {
+	t.Parallel()
+
+	mock := &mockWatchInternal{
+		messages: []*ipc.QueryOut{
+			{
+				Op: -1, // negative — out of bounds
+				Id: func() *int64 { id := int64(2); return &id }(),
+				Envelope: &ipc.MaterializedEnvelope{
+					Id:   2,
+					When: timestamppb.Now(),
+					Kind: "TestEvent",
+				},
+				Body: nil,
+			},
+		},
+		errors: []error{nil},
+	}
+	w := &Watch{
+		handlers: &handlers{
+			registered: []v1.OnStreamQueryResult{
+				func(_ context.Context, _ v1.Envelope, _ json.RawMessage) error {
+					return nil
+				},
+			},
+		},
+		wirePump: mock,
+	}
+
+	id, err := w.TickWithID(t.Context())
+	require.Error(t, err)
+	assert.Equal(t, int64(0), id)
+	assert.Contains(t, err.Error(), "no handler registered for operation -1")
+}

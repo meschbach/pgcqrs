@@ -2,6 +2,7 @@ package query2
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
@@ -101,6 +102,9 @@ func (q *Query) buildBatchRequest(ctx context.Context) (*handlers, *v1.WireBatch
 
 func (q *Query) processBatchResults(ctx context.Context, handlers *handlers, reply *v1.WireBatchR2Result) error {
 	for _, result := range reply.Results {
+		if int(result.Op) < 0 || int(result.Op) >= len(handlers.registered) {
+			return fmt.Errorf("no handler registered for operation %d", result.Op)
+		}
 		handler := handlers.registered[result.Op]
 		if err := handler(ctx, result.Envelope, result.Event); err != nil {
 			return err

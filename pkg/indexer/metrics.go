@@ -13,9 +13,11 @@ const (
 
 // pumpMetrics holds the OpenTelemetry instruments used by a Pump.
 type pumpMetrics struct {
-	stateTransitions    metric.Int64Counter
-	lockLossEvents      metric.Int64Counter
-	watchStreamFailures metric.Int64Counter
+	stateTransitions      metric.Int64Counter
+	lockLossEvents        metric.Int64Counter
+	watchStreamFailures   metric.Int64Counter
+	proactiveHeartbeats   metric.Int64Counter
+	eventDrivenHeartbeats metric.Int64Counter
 }
 
 // newPumpMetrics registers the pump instruments with the given meter. A failed
@@ -52,6 +54,24 @@ func newPumpMetrics(meter metric.Meter) *pumpMetrics {
 		panic(err)
 	}
 
+	m.proactiveHeartbeats, err = meter.Int64Counter(
+		"pump.proactive_heartbeats",
+		metric.WithDescription("Number of proactive heartbeats sent when idle"),
+		metric.WithUnit("{heartbeat}"),
+	)
+	if err != nil {
+		panic(err)
+	}
+
+	m.eventDrivenHeartbeats, err = meter.Int64Counter(
+		"pump.event_driven_heartbeats",
+		metric.WithDescription("Number of heartbeats sent after processing events"),
+		metric.WithUnit("{heartbeat}"),
+	)
+	if err != nil {
+		panic(err)
+	}
+
 	return m
 }
 
@@ -70,4 +90,14 @@ func (m *pumpMetrics) recordLockLossEvent(ctx context.Context) {
 // recordWatchStreamFailure records a watch stream failure metric.
 func (m *pumpMetrics) recordWatchStreamFailure(ctx context.Context) {
 	m.watchStreamFailures.Add(ctx, 1)
+}
+
+// recordProactiveHeartbeat records a proactive heartbeat metric.
+func (m *pumpMetrics) recordProactiveHeartbeat(ctx context.Context) {
+	m.proactiveHeartbeats.Add(ctx, 1)
+}
+
+// recordEventDrivenHeartbeat records an event-driven heartbeat metric.
+func (m *pumpMetrics) recordEventDrivenHeartbeat(ctx context.Context) {
+	m.eventDrivenHeartbeats.Add(ctx, 1)
 }

@@ -18,8 +18,8 @@ func NewGrpcWire(conn *grpc.ClientConn) *GrpcWire {
 	return &GrpcWire{NewGrpcAdapter(conn)}
 }
 
-// WaitForLock calls the WaitForLock RPC and returns the lock, position, and any error.
-func (g *GrpcWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*KeepAlive, int64, error) {
+// WaitForLock calls the WaitForLock RPC and returns the lock, position, heartbeat interval, and any error.
+func (g *GrpcWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*KeepAlive, int64, time.Duration, error) {
 	req := &ipc.WaitForLockRequest{
 		Events: &ipc.DomainStream{
 			Domain: domain,
@@ -31,17 +31,21 @@ func (g *GrpcWire) WaitForLock(ctx context.Context, domain, stream, consumer, ho
 	}
 	grpcStream, err := g.locks.WaitForLock(ctx, req)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	resp, err := grpcStream.Recv()
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	keepAlive, err := g.NewKeepAlive(ctx, domain, stream, consumer, holder)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
-	return keepAlive, resp.Position, nil
+	heartbeatInterval := time.Duration(resp.HeartbeatIntervalMs) * time.Millisecond
+	if heartbeatInterval == 0 {
+		heartbeatInterval = time.Duration(float64(ttl) * DefaultGuaranteeFraction)
+	}
+	return keepAlive, resp.Position, heartbeatInterval, nil
 }
 
 // MemoryWire wraps a Transport into a Wire (for testing).
@@ -55,17 +59,18 @@ func NewMemoryWire(t Transport) *MemoryWire {
 }
 
 // WaitForLock waits for the lock to be available using the emitter, then acquires it.
-func (m *MemoryWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*MemoryLock, int64, error) {
+func (m *MemoryWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*MemoryLock, int64, time.Duration, error) {
 	for {
 		lock, position, acquired, err := m.tryAcquireWithPosition(ctx, domain, stream, consumer, holder, ttl)
 		if err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 		if acquired {
-			return lock, position, nil
+			heartbeatInterval := time.Duration(float64(ttl) * DefaultGuaranteeFraction)
+			return lock, position, heartbeatInterval, nil
 		}
 		if err := m.waitForRelease(ctx, domain, stream, consumer); err != nil {
-			return nil, 0, err
+			return nil, 0, 0, err
 		}
 	}
 }

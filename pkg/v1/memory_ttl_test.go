@@ -120,7 +120,7 @@ func TestMemoryTransport_WaitForLockWakesOnTTLExpiry(t *testing.T) {
 		ctx := t.Context()
 
 		// holder1 acquires lock with 6 second TTL
-		lock1, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder1, 6*time.Second)
+		lock1, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder1, 6*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, lock1)
 
@@ -130,7 +130,7 @@ func TestMemoryTransport_WaitForLockWakesOnTTLExpiry(t *testing.T) {
 		var lockErr error
 		go func() {
 			defer close(done)
-			lock2, _, lockErr = wire.WaitForLock(ctx, domain, stream, consumer, holder2, 30*time.Second)
+			lock2, _, _, lockErr = wire.WaitForLock(ctx, domain, stream, consumer, holder2, 30*time.Second)
 		}()
 
 		// Wait for holder2 to be blocked

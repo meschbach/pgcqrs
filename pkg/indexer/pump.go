@@ -28,8 +28,7 @@ type Pump[L Lock] struct {
 }
 
 type pumpOptions struct {
-	ttl             time.Duration
-	heartbeatMargin time.Duration
+	ttl time.Duration
 }
 
 // Option configures the Pump.
@@ -40,17 +39,10 @@ func WithTTL(ttl time.Duration) Option {
 	return func(o *pumpOptions) { o.ttl = ttl }
 }
 
-// WithHeartbeatMargin sets the margin before heartbeat expiry to trigger renewal.
-// Defaults to 200ms.
-func WithHeartbeatMargin(margin time.Duration) Option {
-	return func(o *pumpOptions) { o.heartbeatMargin = margin }
-}
-
 // NewPump creates a new Pump with the given Wire, Indexer, and holder identity.
 func NewPump[L Lock](wire Wire[L], indexer Indexer, holder string, opts ...Option) *Pump[L] {
 	o := pumpOptions{
-		ttl:             v1.DefaultLockTTL,
-		heartbeatMargin: 200 * time.Millisecond,
+		ttl: v1.DefaultLockTTL,
 	}
 	for _, opt := range opts {
 		opt(&o)
@@ -169,6 +161,7 @@ func (p *Pump[L]) RunWithDomainStream(ctx context.Context, domain, stream string
 
 		retry, err := p.runPumpTick(ctx, domain, stream)
 		if err == nil {
+			backoff.Reset()
 			continue
 		}
 		if ctx.Err() != nil {
@@ -192,11 +185,16 @@ func (p *Pump[L]) runPumpTick(ctx context.Context, domain, stream string) (retry
 	p.setState(ctx, PumpStateAcquiring, nil)
 
 	// Acquire consumer lock and get position
-	lock, lockPosition, err := p.wire.WaitForLock(ctx, domain, stream, p.holder, p.holder, p.opts.ttl)
+	lock, lockPosition, heartbeatInterval, err := p.wire.WaitForLock(ctx, domain, stream, p.holder, p.holder, p.opts.ttl)
 	if err != nil {
 		return true, err
 	}
 	defer func() { retErr = errors.Join(retErr, lock.Release(ctx)) }()
+
+	// Clamp heartbeat interval to never exceed TTL
+	if heartbeatInterval > p.opts.ttl {
+		heartbeatInterval = p.opts.ttl
+	}
 
 	// Build query from indexer
 	query := p.indexer.Query()
@@ -214,7 +212,7 @@ func (p *Pump[L]) runPumpTick(ctx context.Context, domain, stream string) (retry
 	p.setState(ctx, PumpStateWatching, nil)
 
 	position := lockPosition
-	err = p.runWatchLoop(ctx, watch, lock, &position)
+	err = p.runWatchLoop(ctx, watch, lock, &position, heartbeatInterval)
 	if err != nil {
 		// Record watch stream failure
 		p.metrics.recordWatchStreamFailure(ctx)
@@ -223,9 +221,31 @@ func (p *Pump[L]) runPumpTick(ctx context.Context, domain, stream string) (retry
 	return false, nil
 }
 
-func (p *Pump[L]) runWatchLoop(ctx context.Context, watch *query2.Watch, keepAlive L, position *int64) error {
+func (p *Pump[L]) runWatchLoop(ctx context.Context, watch *query2.Watch, keepAlive L, position *int64, heartbeatInterval time.Duration) error {
+	// Watch timeout = heartbeatInterval * 0.9 (10% margin)
+	watchTimeout := time.Duration(float64(heartbeatInterval) * 0.9)
+
 	for {
-		eventID, err := watch.TickWithID(ctx)
+		// Create a timeout context for the watch tick
+		tickCtx, cancel := context.WithTimeout(ctx, watchTimeout)
+		eventID, err := watch.TickWithID(tickCtx)
+		cancel()
+
+		if err == context.DeadlineExceeded {
+			// No event within heartbeat interval — send proactive heartbeat
+			p.metrics.recordProactiveHeartbeat(ctx)
+			if err := keepAlive.Heartbeat(ctx, *position); err != nil {
+				// Check for HeartbeatConflictError - update position and continue
+				var conflictErr *v1.HeartbeatConflictError
+				if errors.As(err, &conflictErr) {
+					*position = conflictErr.CurrentVersion
+					continue
+				}
+				// Any other heartbeat error is a lock loss
+				return &RecoverableError{Err: err}
+			}
+			continue
+		}
 		if err != nil {
 			return err
 		}
@@ -239,6 +259,7 @@ func (p *Pump[L]) runWatchLoop(ctx context.Context, watch *query2.Watch, keepAli
 		*position = eventID
 
 		// Heartbeat with current position
+		p.metrics.recordEventDrivenHeartbeat(ctx)
 		if err := keepAlive.Heartbeat(ctx, *position); err != nil {
 			// Check for HeartbeatConflictError - update position and continue
 			var conflictErr *v1.HeartbeatConflictError

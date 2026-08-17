@@ -12,5 +12,5 @@ import (
 // The generic type parameter L allows different transports to return their specific lock types.
 type Wire[L Lock] interface {
 	Watch(ctx context.Context, query *ipc.QueryIn) (v1.WatchInternal, error)
-	WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (L, int64, error)
+	WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (L, int64, time.Duration, error)
 }

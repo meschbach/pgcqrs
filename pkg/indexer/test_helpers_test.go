@@ -72,21 +72,22 @@ func (w *mockWire) Watch(_ context.Context, _ *ipc.QueryIn) (v1.WatchInternal, e
 	return nil, nil
 }
 
-func (w *mockWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*mockLock, int64, error) {
+func (w *mockWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*mockLock, int64, time.Duration, error) {
 	result, err := w.transport.TryAcquire(ctx, domain, stream, consumer, holder, ttl)
 	if err != nil {
-		return nil, 0, err
+		return nil, 0, 0, err
 	}
 	if !result.Acquired {
-		return nil, 0, context.DeadlineExceeded
+		return nil, 0, 0, context.DeadlineExceeded
 	}
+	heartbeatInterval := time.Duration(float64(ttl) * 0.9)
 	return &mockLock{
 		transport: w.transport,
 		domain:    domain,
 		stream:    stream,
 		consumer:  consumer,
 		holder:    holder,
-	}, result.Position, nil
+	}, result.Position, heartbeatInterval, nil
 }
 
 type testIndexer struct {

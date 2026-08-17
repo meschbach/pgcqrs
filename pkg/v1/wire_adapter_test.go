@@ -20,7 +20,7 @@ func TestMemoryWire_WaitForLock(t *testing.T) {
 		wire := NewMemoryWire(transport)
 		ctx := t.Context()
 
-		lock, position, err := wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder", 30*time.Second)
+		lock, position, _, err := wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder", 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, lock)
 		assert.Equal(t, int64(0), position)
@@ -46,7 +46,7 @@ func TestMemoryWire_WaitForLock(t *testing.T) {
 		holder1 := holderNames.Next()
 		holder2 := holderNames.Next()
 
-		lock1, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		lock1, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder1, 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, lock1)
 
@@ -58,7 +58,7 @@ func TestMemoryWire_WaitForLock(t *testing.T) {
 			assert.NoError(t, err)
 		}()
 
-		lock2, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder2, 30*time.Second)
+		lock2, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder2, 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, lock2)
 
@@ -80,7 +80,7 @@ func TestMemoryWire_WaitForLock(t *testing.T) {
 		ctx, cancel := context.WithTimeout(t.Context(), 50*time.Millisecond)
 		defer cancel()
 
-		_, _, err = wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder2", 30*time.Second)
+		_, _, _, err = wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder2", 30*time.Second)
 		assert.ErrorIs(t, err, context.DeadlineExceeded)
 	})
 
@@ -93,7 +93,7 @@ func TestMemoryWire_WaitForLock(t *testing.T) {
 		_, err := transport.SetPosition(ctx, "domain", "stream", "consumer", 42)
 		require.NoError(t, err)
 
-		lock, position, err := wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder", 30*time.Second)
+		lock, position, _, err := wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder", 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, lock)
 		assert.Equal(t, int64(42), position)
@@ -112,7 +112,7 @@ func TestMemoryLock_Heartbeat(t *testing.T) {
 		wire := NewMemoryWire(transport)
 		ctx := t.Context()
 
-		lock, _, err := wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder", 30*time.Second)
+		lock, _, _, err := wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder", 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, lock)
 
@@ -138,7 +138,7 @@ func TestMemoryLock_Release(t *testing.T) {
 		wire := NewMemoryWire(transport)
 		ctx := t.Context()
 
-		lock, _, err := wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder", 30*time.Second)
+		lock, _, _, err := wire.WaitForLock(ctx, "domain", "stream", "consumer", "holder", 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, lock)
 

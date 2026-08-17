@@ -108,7 +108,6 @@ func TestNewPumpDefaults(t *testing.T) {
 	pump := NewPump(wire, proj, "holder")
 	assert.NotNil(t, pump)
 	assert.Equal(t, v1.DefaultLockTTL, pump.opts.ttl)
-	assert.Equal(t, 200*time.Millisecond, pump.opts.heartbeatMargin)
 }
 
 func TestNewPumpWithOptions(t *testing.T) {
@@ -123,10 +122,8 @@ func TestNewPumpWithOptions(t *testing.T) {
 
 	pump := NewPump(wire, proj, "holder",
 		WithTTL(60*time.Second),
-		WithHeartbeatMargin(500*time.Millisecond),
 	)
 	assert.Equal(t, 60*time.Second, pump.opts.ttl)
-	assert.Equal(t, 500*time.Millisecond, pump.opts.heartbeatMargin)
 }
 
 // mockIndexer is a test double for Indexer.

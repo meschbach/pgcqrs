@@ -44,7 +44,7 @@
 //
 //   - Projection: Defines event handlers and mutation logic
 //   - Client: Provides query API and manages the pump lifecycle
-//   - Store: KV storage interface (MemoryStore, RemoteStore, PGStore)
+//   - Store: KV storage interface (MemoryStore, RemoteStore); PGStore is the PostgreSQL-backed gRPC service implementation (does not implement Store)
 //   - Notifier: Broadcasts changes to observers
 //   - Pump: Drives event processing (acquires lock, watches events, heartbeats)
 //

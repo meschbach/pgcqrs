@@ -10,7 +10,11 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// PGStore is a PostgreSQL-backed Store for view projections.
+// PGStore is the PostgreSQL-backed implementation of the ViewProjectionStore gRPC service.
+// It does not implement the Store interface because its Get and Persist methods require a
+// ProjectionIdentity parameter to route queries to the correct projection's data in PostgreSQL.
+// The Store interface is designed for Indexer usage where projection identity is not available;
+// PGStore is used directly by internal/service/ handlers.
 type PGStore struct {
 	pool *pgxpool.Pool
 }

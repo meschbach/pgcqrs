@@ -4,7 +4,7 @@ This file provides guidance for agentic coding agents operating in the pgcqrs re
 
 ## Project Overview
 
-PGCQRS is a Go project that provides a JSON event store with multi-tenancy and observability support, backed by PostgreSQL. The project requires Go 1.24+.
+PGCQRS is a Go project that provides a JSON event store with multi-tenancy and observability support, backed by PostgreSQL. The project requires Go 1.26+.
 
 ## Build, Test, and Development Commands
 

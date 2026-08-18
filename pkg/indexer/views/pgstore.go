@@ -99,12 +99,12 @@ func (s *PGStore) Get(ctx context.Context, id ProjectionIdentity, kind string, k
 		return nil, err
 	}
 	if len(parts) == 1 {
-		return s.getSingle(ctx, projID, kindID, parts[0])
+		return s.getSingle(ctx, projID, kindID, kind, parts[0])
 	}
-	return s.getComposite(ctx, projID, kindID, parts[0], parts[1])
+	return s.getComposite(ctx, projID, kindID, kind, parts[0], parts[1])
 }
 
-func (s *PGStore) getSingle(ctx context.Context, projID, kindID int64, k string) (*Entity, error) {
+func (s *PGStore) getSingle(ctx context.Context, projID, kindID int64, kind string, k string) (*Entity, error) {
 	var value []byte
 	var version int64
 	err := s.pool.QueryRow(ctx, `
@@ -117,10 +117,10 @@ func (s *PGStore) getSingle(ctx context.Context, projID, kindID int64, k string)
 	if err != nil {
 		return nil, fmt.Errorf("get single: %w", err)
 	}
-	return &Entity{Key: NewKey(k), Value: value, Version: version}, nil
+	return &Entity{Kind: kind, Key: NewKey(k), Value: value, Version: version}, nil
 }
 
-func (s *PGStore) getComposite(ctx context.Context, projID, kindID int64, k1, k2 string) (*Entity, error) {
+func (s *PGStore) getComposite(ctx context.Context, projID, kindID int64, kind string, k1, k2 string) (*Entity, error) {
 	var value []byte
 	var version int64
 	err := s.pool.QueryRow(ctx, `
@@ -133,7 +133,7 @@ func (s *PGStore) getComposite(ctx context.Context, projID, kindID int64, k1, k2
 	if err != nil {
 		return nil, fmt.Errorf("get composite: %w", err)
 	}
-	return &Entity{Key: NewKey(k1, k2), Value: value, Version: version}, nil
+	return &Entity{Kind: kind, Key: NewKey(k1, k2), Value: value, Version: version}, nil
 }
 
 // Persist applies mutations atomically in a single transaction. A nil result is

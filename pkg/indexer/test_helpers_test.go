@@ -4,7 +4,6 @@ import (
 	"context"
 	"time"
 
-	"github.com/meschbach/pgcqrs/pkg/ipc"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/meschbach/pgcqrs/pkg/v1/query2"
 )
@@ -66,10 +65,6 @@ type mockWire struct {
 
 func newMockWire(t *mockTransport) *mockWire {
 	return &mockWire{transport: t}
-}
-
-func (w *mockWire) Watch(_ context.Context, _ *ipc.QueryIn) (v1.WatchInternal, error) {
-	return nil, nil
 }
 
 func (w *mockWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*mockLock, int64, time.Duration, error) {

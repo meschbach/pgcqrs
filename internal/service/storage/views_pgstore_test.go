@@ -19,7 +19,7 @@ func TestViewsPGStorePersistAdvancesPosition(t *testing.T) {
 	stream := fmt.Sprintf("stream-%s", t.Name())
 	createTestStream(ctx, t, pool, domain, stream)
 
-	id := views.NewProjectionIdentity(domain, stream, "items")
+	id := views.NewProjectionIdentity(domain, stream, "items", "test-consumer")
 	store := views.NewPGStore(pool)
 
 	change, err := store.Persist(ctx, id, &views.ReduceResult{
@@ -37,6 +37,7 @@ func TestViewsPGStorePersistAdvancesPosition(t *testing.T) {
 	entity, err := store.Get(ctx, id, "items", views.NewKey("item-42"))
 	require.NoError(t, err)
 	require.NotNil(t, entity)
+	require.Equal(t, "items", entity.Kind)
 	require.Equal(t, int64(1), entity.Version)
 
 	// A nil result (no mutations) must still advance the projection version

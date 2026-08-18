@@ -58,10 +58,7 @@ func (r *RemoteReader) Get(ctx context.Context, kind string, key Key, opts ...Ge
 
 	resp, err := r.client.GetEntity(ctx, req)
 	if err != nil {
-		if status.Code(err) == codes.Canceled || status.Code(err) == codes.DeadlineExceeded {
-			return nil, 0, ctx.Err()
-		}
-		return nil, 0, fmt.Errorf("get entity: %w", err)
+		return nil, 0, r.translateGetError(ctx, err)
 	}
 
 	result, err := statusFromProto(resp.Status)
@@ -69,6 +66,19 @@ func (r *RemoteReader) Get(ctx context.Context, kind string, key Key, opts ...Ge
 		return nil, 0, err
 	}
 	return entityFromResponse(resp), result, nil
+}
+
+// translateGetError converts gRPC errors to context errors when appropriate.
+// For Canceled/DeadlineExceeded errors, returns the context error if the context is done;
+// otherwise wraps the original error.
+func (r *RemoteReader) translateGetError(ctx context.Context, err error) error {
+	if status.Code(err) != codes.Canceled && status.Code(err) != codes.DeadlineExceeded {
+		return fmt.Errorf("get entity: %w", err)
+	}
+	if ctxErr := ctx.Err(); ctxErr != nil {
+		return ctxErr
+	}
+	return fmt.Errorf("get entity: %w", err)
 }
 
 // Version returns the current projection version from the remote consumer service.

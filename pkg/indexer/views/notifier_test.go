@@ -340,3 +340,67 @@ func TestOnChangeUnsubscribeIdempotent(t *testing.T) {
 	require.NoError(t, n.Emit(t.Context(), Change{Version: 1}))
 	require.Empty(t, received)
 }
+
+// TestWaitForVersionBurstDropDoesNotTimeout verifies that when more than 16
+// rapid changes arrive (overflowing the buffered channel) and the target version
+// is dropped by the non-blocking send, WaitForVersion still returns true because
+// lastVersion was updated by Emit before dispatching callbacks.
+//
+// This is a regression test for the burst-drop race: the channel buffer is 16,
+// so if >16 changes arrive and the target is in the dropped range, the loop
+// would previously block until ctx.Done(). The fix re-checks atOrAbove on each
+// received change and on ctx.Done().
+func TestWaitForVersionBurstDropDoesNotTimeout(t *testing.T) {
+	t.Parallel()
+	n := NewNotifier()
+
+	// Start waiting for version 20 (beyond the 16-buffer channel)
+	ctx, cancel := context.WithTimeout(t.Context(), 2*time.Second)
+	defer cancel()
+
+	done := make(chan bool, 1)
+	errCh := make(chan error, 1)
+	go func() {
+		reached, err := n.WaitForVersion(ctx, 20)
+		done <- reached
+		errCh <- err
+	}()
+
+	// Give the goroutine time to subscribe
+	time.Sleep(10 * time.Millisecond)
+
+	// Emit 25 changes rapidly — versions 0-24. The channel buffer is 16,
+	// so versions 17-24 will be dropped by the non-blocking send.
+	// The target (20) is in the dropped range.
+	for i := int64(0); i < 25; i++ {
+		require.NoError(t, n.Emit(t.Context(), Change{Version: i}))
+	}
+
+	// WaitForVersion should return true because lastVersion was updated to 24
+	// by Emit, even though the specific change with version 20 was dropped.
+	select {
+	case reached := <-done:
+		require.True(t, reached, "WaitForVersion should return true when lastVersion >= target")
+		require.NoError(t, <-errCh)
+	case <-time.After(3 * time.Second):
+		require.Fail(t, "WaitForVersion timed out — burst-drop race not handled")
+	}
+}
+
+// TestWaitForVersionChecksAtOrAboveOnEachReceivedChange verifies that after
+// receiving a change below the target, WaitForVersion re-checks atOrAbove
+// in case lastVersion was updated beyond what the received change indicates.
+func TestWaitForVersionChecksAtOrAboveOnEachReceivedChange(t *testing.T) {
+	t.Parallel()
+	n := NewNotifier()
+
+	// Emit version 10 first
+	require.NoError(t, n.Emit(t.Context(), Change{Version: 10}))
+
+	// Now wait for version 5 — should return immediately via atOrAbove check
+	ctx, cancel := context.WithTimeout(t.Context(), 100*time.Millisecond)
+	defer cancel()
+	reached, err := n.WaitForVersion(ctx, 5)
+	require.NoError(t, err)
+	require.True(t, reached)
+}

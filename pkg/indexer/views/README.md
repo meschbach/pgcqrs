@@ -115,7 +115,7 @@ client.OnChange(func(c views.Change) {
 | `ReduceResult` | Handler output: `Upserts []Upsert`, `Deletes []Delete` |
 | `ReduceContext` | Handler context: `Get(kind, key)` reads previous entity state |
 | `Change` | Notification: `Upserts`, `Deletes`, `Version` |
-| `Result` | Get response: `Entity`, `Version`, `Status` |
+| `Result` | Get response: `Entity`, `Status` |
 | `Status` | `StatusOK`, `StatusNotFound`, `StatusStale`, `StatusTimeout` |
 
 ### Projection

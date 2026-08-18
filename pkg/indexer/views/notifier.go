@@ -69,17 +69,24 @@ func (n *Notifier) WaitForVersion(ctx context.Context, targetVersion int64) (boo
 	})
 	defer unsubscribe()
 
-	if n.atOrAbove(targetVersion) {
+	reached := func() bool {
+		return n.atOrAbove(targetVersion)
+	}
+
+	if reached() {
 		return true, nil
 	}
 
 	for {
 		select {
-		case c := <-ch:
-			if c.Version >= targetVersion {
+		case <-ch:
+			if reached() {
 				return true, nil
 			}
 		case <-ctx.Done():
+			if reached() {
+				return true, nil
+			}
 			return false, ctx.Err()
 		}
 	}

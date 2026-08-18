@@ -5,8 +5,8 @@ import "fmt"
 // Status indicates the result of a version-constrained Get operation.
 type Status int
 
-func (s *Status) String() string {
-	switch *s {
+func (s Status) String() string {
+	switch s {
 	case StatusOK:
 		return "ok"
 	case StatusNotFound:
@@ -16,7 +16,7 @@ func (s *Status) String() string {
 	case StatusTimeout:
 		return "timeout"
 	default:
-		return fmt.Sprintf("%#v", *s)
+		return fmt.Sprintf("%#v", s)
 	}
 }
 
@@ -33,7 +33,6 @@ const (
 
 // Result contains the entity and version constraint status from a Get operation.
 type Result struct {
-	Entity  *Entity
-	Version int64
-	Status  Status
+	Entity *Entity
+	Status Status
 }

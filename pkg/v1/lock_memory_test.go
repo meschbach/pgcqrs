@@ -624,3 +624,64 @@ func TestMemoryTryAcquire_PositionInvariant(t *testing.T) {
 		assert.Equal(t, int64(77), result.Position, "acquired result must return stored position")
 	})
 }
+
+func TestMemoryLockExpiry_GenerationGuard(t *testing.T) {
+	t.Parallel()
+
+	domain := faker.Word()
+	stream := faker.Word()
+	consumer := faker.Word()
+	holder := faker.Word()
+
+	t.Run("StaleTimerDoesNotDeleteRenewedLock", func(t *testing.T) {
+		t.Parallel()
+		frozen := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		m := newTestMemory(t)
+		m.now = func() time.Time { return frozen }
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		// Acquire with a 10s TTL. The expiry timer fires at frozen+10s.
+		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 10*time.Second)
+		require.NoError(t, err)
+
+		// Advance to 8s — before the timer fires — and heartbeat.
+		// This increments the generation and reschedules the timer to frozen+18s.
+		m.now = func() time.Time { return frozen.Add(8 * time.Second) }
+		err = m.HeartbeatWithPosition(ctx, domain, stream, consumer, holder, 0)
+		require.NoError(t, err)
+
+		// Advance to 10s — the original timer fires. But the generation
+		// no longer matches, so the lock must survive.
+		m.now = func() time.Time { return frozen.Add(10 * time.Second) }
+		// Allow the timer goroutine to fire and be processed.
+		time.Sleep(50 * time.Millisecond)
+
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
+		require.NoError(t, err)
+		require.True(t, found, "lock should survive stale timer — generation mismatch")
+		assert.Equal(t, holder, state.Holder)
+	})
+
+	t.Run("UnrenewedLockExpiresNaturally", func(t *testing.T) {
+		t.Parallel()
+		frozen := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		m := newTestMemory(t)
+		m.now = func() time.Time { return frozen }
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		// Acquire with a 10s TTL, no heartbeat.
+		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 10*time.Second)
+		require.NoError(t, err)
+
+		// Advance past the TTL. The timer fires with matching generation.
+		m.now = func() time.Time { return frozen.Add(11 * time.Second) }
+		time.Sleep(50 * time.Millisecond)
+
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
+		require.NoError(t, err)
+		assert.False(t, found, "unrenewed lock should expire")
+		assert.Nil(t, state)
+	})
+}

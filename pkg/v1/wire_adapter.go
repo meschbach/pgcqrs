@@ -59,7 +59,15 @@ func NewMemoryWire(t Transport) *MemoryWire {
 }
 
 // WaitForLock waits for the lock to be available using the emitter, then acquires it.
+// Uses the register-then-recheck pattern: subscribe to release notifications before
+// the first acquire attempt, then recheck after each notification to avoid missing
+// releases that fire between a failed acquire and subscription.
 func (m *MemoryWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*MemoryLock, int64, time.Duration, error) {
+	// Subscribe to release notifications first, before any acquire attempt.
+	// This ensures we never miss a release that fires between tryAcquire and subscribe.
+	ch, unsub := subscribeToRelease(m.Transport, domain, stream, consumer)
+	defer unsub()
+
 	for {
 		lock, position, acquired, err := m.tryAcquireWithPosition(ctx, domain, stream, consumer, holder, ttl)
 		if err != nil {
@@ -69,8 +77,14 @@ func (m *MemoryWire) WaitForLock(ctx context.Context, domain, stream, consumer, 
 			heartbeatInterval := time.Duration(float64(ttl) * DefaultGuaranteeFraction)
 			return lock, position, heartbeatInterval, nil
 		}
-		if err := m.waitForRelease(ctx, domain, stream, consumer); err != nil {
-			return nil, 0, 0, err
+		// Block until a release notification arrives or context is canceled.
+		// The subscription is already active, so releases that fire during
+		// tryAcquire are buffered and delivered here.
+		select {
+		case <-ctx.Done():
+			return nil, 0, 0, ctx.Err()
+		case <-ch:
+			// Lock released — loop back to tryAcquire
 		}
 	}
 }
@@ -90,19 +104,6 @@ func (m *MemoryWire) tryAcquireWithPosition(ctx context.Context, domain, stream,
 		consumer:  consumer,
 		holder:    holder,
 	}, result.Position, true, nil
-}
-
-// waitForRelease blocks until the consumer's lock is released or the context
-// is canceled.
-func (m *MemoryWire) waitForRelease(ctx context.Context, domain, stream, consumer string) error {
-	ch, unsub := subscribeToRelease(m.Transport, domain, stream, consumer)
-	defer unsub()
-	select {
-	case <-ctx.Done():
-		return ctx.Err()
-	case <-ch:
-		return nil
-	}
 }
 
 // subscribeToRelease registers a callback that signals releaseCh when a lock

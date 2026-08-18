@@ -49,6 +49,7 @@ type memoryLockState struct {
 	guaranteeUntil time.Time
 	heldUntil      time.Time
 	expiryTimer    *time.Timer
+	generation     int64
 }
 
 type memoryDomain struct {
@@ -57,10 +58,9 @@ type memoryDomain struct {
 }
 
 type memoryStream struct {
-	name    string
-	packets []memoryPacket
-	//todo: convert to SyncEmitter
-	onAddPacket []func(int64)
+	name        string
+	packets     []memoryPacket
+	onAddPacket *emitter.MutexDispatcher[int64]
 }
 
 type memoryPacket struct {
@@ -70,14 +70,20 @@ type memoryPacket struct {
 }
 
 type lockExpiryOp struct {
-	domain   string
-	stream   string
-	consumer string
+	domain     string
+	stream     string
+	consumer   string
+	generation int64
 }
 
 func (op *lockExpiryOp) perform(m *memory) {
 	existing := m.lockState(op.domain, op.stream, op.consumer)
 	if existing == nil {
+		return
+	}
+	// A heartbeat renewed the lock since this timer was scheduled.
+	// The new timer will handle expiry; refuse to delete the fresh lock.
+	if existing.generation != op.generation {
 		return
 	}
 	// Timer-driven expiry runs outside any request context, so a failing
@@ -156,8 +162,9 @@ func (m *memory) EnsureStream(ctx context.Context, domain, stream string) error 
 
 		if _, hasStream := domain.streams[stream]; !hasStream {
 			domain.streams[stream] = &memoryStream{
-				name:    stream,
-				packets: nil,
+				name:        stream,
+				packets:     nil,
+				onAddPacket: emitter.NewMutexDispatcher[int64](),
 			}
 		}
 	}})
@@ -270,9 +277,7 @@ func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event 
 			data: bytes,
 		}
 		stream.packets = append(stream.packets, packet)
-		for _, onAdd := range stream.onAddPacket {
-			onAdd(out)
-		}
+		_ = stream.onAddPacket.Emit(context.Background(), out)
 	}}); err != nil {
 		return nil, err
 	}
@@ -500,8 +505,16 @@ func (m *memory) Watch(ctx context.Context, query *ipc.QueryIn) (WatchInternal, 
 	initSetup.Go(func() error {
 		return m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
 			stream := m.domains[query.Events.Domain].streams[query.Events.Stream]
-			stream.onAddPacket = append(stream.onAddPacket, func(id int64) {
-				pendingEvents <- id
+			stream.onAddPacket.OnE(func(_ context.Context, id int64) error {
+				select {
+				case pendingEvents <- id:
+				default:
+					// Buffer full — consumer is stalled. Close to
+					// signal the watch loop to stop cleanly rather
+					// than blocking the memory service goroutine.
+					close(pendingEvents)
+				}
+				return nil
 			})
 		}})
 	})
@@ -829,11 +842,12 @@ func (m *memory) tryAcquireInternal(domain, stream, consumer, holder string, ttl
 		ttl:            ttl,
 		guaranteeUntil: guaranteeUntil,
 		heldUntil:      heldUntil,
+		generation:     0,
 	}
 	newState.expiryTimer = time.AfterFunc(ttl, func() {
 		m.input <- memoryOp{
 			done:    make(chan interface{}),
-			command: &lockExpiryOp{domain: domain, stream: stream, consumer: consumer},
+			command: &lockExpiryOp{domain: domain, stream: stream, consumer: consumer, generation: 0},
 		}
 	})
 	m.setLock(domain, stream, consumer, newState)
@@ -1047,6 +1061,7 @@ func (m *memory) heartbeatLockAndPosition(domain, stream, consumer, holder strin
 	existing.heartbeatAt = now
 	existing.guaranteeUntil = guaranteeUntil
 	existing.heldUntil = heldUntil
+	existing.generation++
 
 	// Reschedule the expiry timer
 	if existing.expiryTimer != nil {
@@ -1055,7 +1070,7 @@ func (m *memory) heartbeatLockAndPosition(domain, stream, consumer, holder strin
 	existing.expiryTimer = time.AfterFunc(existing.ttl, func() {
 		m.input <- memoryOp{
 			done:    make(chan interface{}),
-			command: &lockExpiryOp{domain: domain, stream: stream, consumer: consumer},
+			command: &lockExpiryOp{domain: domain, stream: stream, consumer: consumer, generation: existing.generation},
 		}
 	})
 

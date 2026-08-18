@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -100,6 +101,130 @@ func TestMemoryWire_WaitForLock(t *testing.T) {
 
 		err = lock.Release(ctx)
 		require.NoError(t, err)
+	})
+}
+
+// TestMemoryWire_WaitForLock_LostWakeupRace verifies that a release event
+// firing between a failed acquire and the select is still delivered. The
+// old code (tryAcquire → subscribe → block) missed releases in this window;
+// the new code (subscribe → tryAcquire → block) catches them.
+func TestMemoryWire_WaitForLock_LostWakeupRace(t *testing.T) {
+	t.Parallel()
+
+	t.Run("ReleaseDuringAcquireWindowIsDelivered", func(t *testing.T) {
+		t.Parallel()
+		transport := NewMemoryTransport()
+		wire := NewMemoryWire(transport)
+		ctx := t.Context()
+
+		domain := faker.Word()
+		stream := faker.Word()
+		consumer := faker.Word()
+		require.NoError(t, transport.EnsureStream(ctx, domain, stream))
+
+		holderNames := faking.NewUniqueKebab()
+		holder1 := holderNames.Next()
+		holder2 := holderNames.Next()
+
+		// Holder1 takes the lock
+		lock1, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, lock1)
+
+		// Release in a goroutine after a short delay. This fires while
+		// holder2 is blocked inside tryAcquire (before the select).
+		ready := make(chan struct{})
+		go func() {
+			close(ready)
+			time.Sleep(5 * time.Millisecond)
+			_ = lock1.Release(ctx)
+		}()
+
+		<-ready
+
+		// With the old code (subscribe after tryAcquire), this blocks
+		// forever because the release event was missed. With the new
+		// code (subscribe before tryAcquire), the event is buffered
+		// and delivered.
+		lock2, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder2, 30*time.Second)
+		require.NoError(t, err)
+		require.NotNil(t, lock2)
+		require.NoError(t, lock2.Release(ctx))
+	})
+
+	t.Run("MultipleReleasesAreDelivered", func(t *testing.T) {
+		t.Parallel()
+		transport := NewMemoryTransport()
+		wire := NewMemoryWire(transport)
+		ctx := t.Context()
+
+		domain := faker.Word()
+		stream := faker.Word()
+		consumer := faker.Word()
+		require.NoError(t, transport.EnsureStream(ctx, domain, stream))
+
+		// Three holders take and release in sequence
+		for i := 0; i < 3; i++ {
+			holder := fmt.Sprintf("holder-%d", i)
+			lock, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder, 30*time.Second)
+			require.NoError(t, err)
+			require.NotNil(t, lock)
+			require.NoError(t, lock.Release(ctx))
+		}
+	})
+
+	t.Run("ConcurrentWaitersBothAcquire", func(t *testing.T) {
+		t.Parallel()
+		transport := NewMemoryTransport()
+		wire := NewMemoryWire(transport)
+		ctx := t.Context()
+
+		domain := faker.Word()
+		stream := faker.Word()
+		consumer := faker.Word()
+		require.NoError(t, transport.EnsureStream(ctx, domain, stream))
+
+		holderNames := faking.NewUniqueKebab()
+		holder1 := holderNames.Next()
+		holder2 := holderNames.Next()
+		holder3 := holderNames.Next()
+
+		// Holder1 takes the lock
+		lock1, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		require.NoError(t, err)
+
+		type result struct {
+			lock *MemoryLock
+			err  error
+		}
+		ch := make(chan result, 2)
+
+		// Two waiters start concurrently
+		go func() {
+			lock, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder2, 30*time.Second)
+			ch <- result{lock, err}
+		}()
+		go func() {
+			lock, _, _, err := wire.WaitForLock(ctx, domain, stream, consumer, holder3, 30*time.Second)
+			ch <- result{lock, err}
+		}()
+
+		// Release so both can proceed one at a time
+		time.Sleep(10 * time.Millisecond)
+		require.NoError(t, lock1.Release(ctx))
+
+		// First waiter gets the lock
+		r1 := <-ch
+		require.NoError(t, r1.err)
+		require.NotNil(t, r1.lock)
+
+		// Release so the second waiter can get it
+		require.NoError(t, r1.lock.Release(ctx))
+
+		r2 := <-ch
+		require.NoError(t, r2.err)
+		require.NotNil(t, r2.lock)
+		require.NoError(t, r2.lock.Release(ctx))
 	})
 }
 

@@ -82,6 +82,7 @@ type ApplyMutationsRequest struct {
 	EventId       int64                  `protobuf:"varint,4,opt,name=event_id,json=eventId,proto3" json:"event_id,omitempty"`
 	Domain        string                 `protobuf:"bytes,5,opt,name=domain,proto3" json:"domain,omitempty"`
 	Stream        string                 `protobuf:"bytes,6,opt,name=stream,proto3" json:"stream,omitempty"`
+	Consumer      string                 `protobuf:"bytes,7,opt,name=consumer,proto3" json:"consumer,omitempty"` // optional; defaults to projection if empty
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -154,6 +155,13 @@ func (x *ApplyMutationsRequest) GetDomain() string {
 func (x *ApplyMutationsRequest) GetStream() string {
 	if x != nil {
 		return x.Stream
+	}
+	return ""
+}
+
+func (x *ApplyMutationsRequest) GetConsumer() string {
+	if x != nil {
+		return x.Consumer
 	}
 	return ""
 }
@@ -521,6 +529,7 @@ type StoreGetEntityRequest struct {
 	Key           []string               `protobuf:"bytes,3,rep,name=key,proto3" json:"key,omitempty"`
 	Domain        string                 `protobuf:"bytes,4,opt,name=domain,proto3" json:"domain,omitempty"`
 	Stream        string                 `protobuf:"bytes,5,opt,name=stream,proto3" json:"stream,omitempty"`
+	Consumer      string                 `protobuf:"bytes,6,opt,name=consumer,proto3" json:"consumer,omitempty"` // optional; defaults to projection if empty
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -590,6 +599,13 @@ func (x *StoreGetEntityRequest) GetStream() string {
 	return ""
 }
 
+func (x *StoreGetEntityRequest) GetConsumer() string {
+	if x != nil {
+		return x.Consumer
+	}
+	return ""
+}
+
 type GetEntityRequest struct {
 	state      protoimpl.MessageState `protogen:"open.v1"`
 	Projection string                 `protobuf:"bytes,1,opt,name=projection,proto3" json:"projection,omitempty"`
@@ -602,6 +618,7 @@ type GetEntityRequest struct {
 	VersionConstraint isGetEntityRequest_VersionConstraint `protobuf_oneof:"version_constraint"`
 	Domain            string                               `protobuf:"bytes,6,opt,name=domain,proto3" json:"domain,omitempty"`
 	Stream            string                               `protobuf:"bytes,7,opt,name=stream,proto3" json:"stream,omitempty"`
+	Consumer          string                               `protobuf:"bytes,8,opt,name=consumer,proto3" json:"consumer,omitempty"` // optional; defaults to projection if empty
 	unknownFields     protoimpl.UnknownFields
 	sizeCache         protoimpl.SizeCache
 }
@@ -696,6 +713,13 @@ func (x *GetEntityRequest) GetStream() string {
 	return ""
 }
 
+func (x *GetEntityRequest) GetConsumer() string {
+	if x != nil {
+		return x.Consumer
+	}
+	return ""
+}
+
 type isGetEntityRequest_VersionConstraint interface {
 	isGetEntityRequest_VersionConstraint()
 }
@@ -769,6 +793,7 @@ type VersionRequest struct {
 	Projection    string                 `protobuf:"bytes,1,opt,name=projection,proto3" json:"projection,omitempty"`
 	Domain        string                 `protobuf:"bytes,2,opt,name=domain,proto3" json:"domain,omitempty"`
 	Stream        string                 `protobuf:"bytes,3,opt,name=stream,proto3" json:"stream,omitempty"`
+	Consumer      string                 `protobuf:"bytes,4,opt,name=consumer,proto3" json:"consumer,omitempty"` // optional; defaults to projection if empty
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -824,6 +849,13 @@ func (x *VersionRequest) GetStream() string {
 	return ""
 }
 
+func (x *VersionRequest) GetConsumer() string {
+	if x != nil {
+		return x.Consumer
+	}
+	return ""
+}
+
 type VersionResponse struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
 	Version       int64                  `protobuf:"varint,1,opt,name=version,proto3" json:"version,omitempty"`
@@ -874,6 +906,7 @@ type WatchChangesRequest struct {
 	AfterVersion  *AfterConstraint       `protobuf:"bytes,2,opt,name=after_version,json=afterVersion,proto3" json:"after_version,omitempty"`
 	Domain        string                 `protobuf:"bytes,3,opt,name=domain,proto3" json:"domain,omitempty"`
 	Stream        string                 `protobuf:"bytes,4,opt,name=stream,proto3" json:"stream,omitempty"`
+	Consumer      string                 `protobuf:"bytes,5,opt,name=consumer,proto3" json:"consumer,omitempty"` // optional; defaults to projection if empty
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -932,6 +965,13 @@ func (x *WatchChangesRequest) GetDomain() string {
 func (x *WatchChangesRequest) GetStream() string {
 	if x != nil {
 		return x.Stream
+	}
+	return ""
+}
+
+func (x *WatchChangesRequest) GetConsumer() string {
+	if x != nil {
+		return x.Consumer
 	}
 	return ""
 }
@@ -1000,7 +1040,7 @@ var File_pkg_indexer_views_grpc_views_proto protoreflect.FileDescriptor
 
 const file_pkg_indexer_views_grpc_views_proto_rawDesc = "" +
 	"\n" +
-	"\"pkg/indexer/views/grpc/views.proto\x12\x05views\"\xd4\x01\n" +
+	"\"pkg/indexer/views/grpc/views.proto\x12\x05views\"\xf0\x01\n" +
 	"\x15ApplyMutationsRequest\x12\x1e\n" +
 	"\n" +
 	"projection\x18\x01 \x01(\tR\n" +
@@ -1009,7 +1049,8 @@ const file_pkg_indexer_views_grpc_views_proto_rawDesc = "" +
 	"\adeletes\x18\x03 \x03(\v2\r.views.DeleteR\adeletes\x12\x19\n" +
 	"\bevent_id\x18\x04 \x01(\x03R\aeventId\x12\x16\n" +
 	"\x06domain\x18\x05 \x01(\tR\x06domain\x12\x16\n" +
-	"\x06stream\x18\x06 \x01(\tR\x06stream\"\xa2\x01\n" +
+	"\x06stream\x18\x06 \x01(\tR\x06stream\x12\x1a\n" +
+	"\bconsumer\x18\a \x01(\tR\bconsumer\"\xa2\x01\n" +
 	"\x16ApplyMutationsResponse\x126\n" +
 	"\x0fapplied_upserts\x18\x01 \x03(\v2\r.views.UpsertR\x0eappliedUpserts\x126\n" +
 	"\x0fapplied_deletes\x18\x02 \x03(\v2\r.views.DeleteR\x0eappliedDeletes\x12\x18\n" +
@@ -1033,7 +1074,7 @@ const file_pkg_indexer_views_grpc_views_proto_rawDesc = "" +
 	"\x16UntilVersionConstraint\x12\x18\n" +
 	"\aversion\x18\x01 \x01(\x03R\aversion\x12\x1d\n" +
 	"\n" +
-	"timeout_ms\x18\x02 \x01(\x03R\ttimeoutMs\"\x8d\x01\n" +
+	"timeout_ms\x18\x02 \x01(\x03R\ttimeoutMs\"\xa9\x01\n" +
 	"\x15StoreGetEntityRequest\x12\x1e\n" +
 	"\n" +
 	"projection\x18\x01 \x01(\tR\n" +
@@ -1041,7 +1082,8 @@ const file_pkg_indexer_views_grpc_views_proto_rawDesc = "" +
 	"\x04kind\x18\x02 \x01(\tR\x04kind\x12\x10\n" +
 	"\x03key\x18\x03 \x03(\tR\x03key\x12\x16\n" +
 	"\x06domain\x18\x04 \x01(\tR\x06domain\x12\x16\n" +
-	"\x06stream\x18\x05 \x01(\tR\x06stream\"\x94\x02\n" +
+	"\x06stream\x18\x05 \x01(\tR\x06stream\x12\x1a\n" +
+	"\bconsumer\x18\x06 \x01(\tR\bconsumer\"\xb0\x02\n" +
 	"\x10GetEntityRequest\x12\x1e\n" +
 	"\n" +
 	"projection\x18\x01 \x01(\tR\n" +
@@ -1051,26 +1093,29 @@ const file_pkg_indexer_views_grpc_views_proto_rawDesc = "" +
 	"\x05after\x18\x04 \x01(\v2\x16.views.AfterConstraintH\x00R\x05after\x12D\n" +
 	"\runtil_version\x18\x05 \x01(\v2\x1d.views.UntilVersionConstraintH\x00R\funtilVersion\x12\x16\n" +
 	"\x06domain\x18\x06 \x01(\tR\x06domain\x12\x16\n" +
-	"\x06stream\x18\a \x01(\tR\x06streamB\x14\n" +
+	"\x06stream\x18\a \x01(\tR\x06stream\x12\x1a\n" +
+	"\bconsumer\x18\b \x01(\tR\bconsumerB\x14\n" +
 	"\x12version_constraint\"d\n" +
 	"\x11GetEntityResponse\x12%\n" +
 	"\x06entity\x18\x01 \x01(\v2\r.views.EntityR\x06entity\x12(\n" +
-	"\x06status\x18\x02 \x01(\x0e2\x10.views.GetStatusR\x06status\"`\n" +
+	"\x06status\x18\x02 \x01(\x0e2\x10.views.GetStatusR\x06status\"|\n" +
 	"\x0eVersionRequest\x12\x1e\n" +
 	"\n" +
 	"projection\x18\x01 \x01(\tR\n" +
 	"projection\x12\x16\n" +
 	"\x06domain\x18\x02 \x01(\tR\x06domain\x12\x16\n" +
-	"\x06stream\x18\x03 \x01(\tR\x06stream\"+\n" +
+	"\x06stream\x18\x03 \x01(\tR\x06stream\x12\x1a\n" +
+	"\bconsumer\x18\x04 \x01(\tR\bconsumer\"+\n" +
 	"\x0fVersionResponse\x12\x18\n" +
-	"\aversion\x18\x01 \x01(\x03R\aversion\"\xa2\x01\n" +
+	"\aversion\x18\x01 \x01(\x03R\aversion\"\xbe\x01\n" +
 	"\x13WatchChangesRequest\x12\x1e\n" +
 	"\n" +
 	"projection\x18\x01 \x01(\tR\n" +
 	"projection\x12;\n" +
 	"\rafter_version\x18\x02 \x01(\v2\x16.views.AfterConstraintR\fafterVersion\x12\x16\n" +
 	"\x06domain\x18\x03 \x01(\tR\x06domain\x12\x16\n" +
-	"\x06stream\x18\x04 \x01(\tR\x06stream\"\x82\x01\n" +
+	"\x06stream\x18\x04 \x01(\tR\x06stream\x12\x1a\n" +
+	"\bconsumer\x18\x05 \x01(\tR\bconsumer\"\x82\x01\n" +
 	"\x14WatchChangesResponse\x12'\n" +
 	"\aupserts\x18\x01 \x03(\v2\r.views.UpsertR\aupserts\x12'\n" +
 	"\adeletes\x18\x02 \x03(\v2\r.views.DeleteR\adeletes\x12\x18\n" +

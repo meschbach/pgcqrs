@@ -42,7 +42,7 @@ func (h *ConsumerHandler) GetEntity(ctx context.Context, req *vgrpc.GetEntityReq
 	if len(req.Key) == 0 {
 		return nil, grpcstatus.Error(codes.InvalidArgument, "key must have at least 1 part")
 	}
-	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
+	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection, req.Consumer)
 	entity, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
 	if err != nil {
 		return nil, err
@@ -153,7 +153,7 @@ func protoFromStatus(s views.Status) (vgrpc.GetStatus, error) {
 
 // Version returns the current projection version.
 func (h *ConsumerHandler) Version(ctx context.Context, req *vgrpc.VersionRequest) (*vgrpc.VersionResponse, error) {
-	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
+	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection, req.Consumer)
 	version, err := h.store.Version(ctx, id)
 	if err != nil {
 		return nil, err

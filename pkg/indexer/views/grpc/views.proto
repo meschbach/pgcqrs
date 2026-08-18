@@ -25,6 +25,7 @@ message ApplyMutationsRequest {
     int64 event_id = 4;
     string domain = 5;
     string stream = 6;
+    string consumer = 7; // optional; defaults to projection if empty
 }
 
 message ApplyMutationsResponse {
@@ -74,6 +75,7 @@ message StoreGetEntityRequest {
     repeated string key = 3;
     string domain = 4;
     string stream = 5;
+    string consumer = 6; // optional; defaults to projection if empty
 }
 
 message GetEntityRequest {
@@ -86,6 +88,7 @@ message GetEntityRequest {
     }
     string domain = 6;
     string stream = 7;
+    string consumer = 8; // optional; defaults to projection if empty
 }
 
 // GetStatus reports how a GetEntity was resolved.
@@ -107,6 +110,7 @@ message VersionRequest {
     string projection = 1;
     string domain = 2;
     string stream = 3;
+    string consumer = 4; // optional; defaults to projection if empty
 }
 
 message VersionResponse {
@@ -118,6 +122,7 @@ message WatchChangesRequest {
     AfterConstraint after_version = 2;
     string domain = 3;
     string stream = 4;
+    string consumer = 5; // optional; defaults to projection if empty
 }
 
 message WatchChangesResponse {

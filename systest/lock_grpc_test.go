@@ -209,7 +209,7 @@ func TestGRPCWaitForLock_BlocksUntilReleased(t *testing.T) {
 	wire2 := v1.NewGrpcWire(conn2)
 
 	// holder1 acquires the lock and heartbeats a position
-	lock1, pos1, err := wire1.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder1, 30*time.Second)
+	lock1, pos1, _, err := wire1.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder1, 30*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, lock1)
 	assert.Equal(t, int64(0), pos1, "fresh consumer should have position 0")
@@ -223,7 +223,7 @@ func TestGRPCWaitForLock_BlocksUntilReleased(t *testing.T) {
 	var pos2 int64
 	go func() {
 		var err error
-		lock2, pos2, err = wire2.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder2, 30*time.Second)
+		lock2, pos2, _, err = wire2.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder2, 30*time.Second)
 		done <- err
 	}()
 

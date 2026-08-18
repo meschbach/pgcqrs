@@ -40,7 +40,7 @@ func (h *StoreHandler) ApplyMutations(ctx context.Context, req *vgrpc.ApplyMutat
 		})
 	}
 
-	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
+	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection, req.Consumer)
 	change, err := h.store.Persist(ctx, id, result, req.EventId)
 	if err != nil {
 		return nil, err
@@ -96,7 +96,7 @@ func (h *StoreHandler) GetEntity(ctx context.Context, req *vgrpc.StoreGetEntityR
 	if len(req.Key) == 0 {
 		return nil, status.Error(codes.InvalidArgument, "key must have at least 1 part")
 	}
-	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
+	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection, req.Consumer)
 	entity, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
 	if err != nil {
 		return nil, err

@@ -9,19 +9,26 @@ import (
 )
 
 // ProjectionIdentity uniquely identifies a view projection within a stream.
-// It carries the tightly coupled {domain, stream, projection} triple.
+// It carries the tightly coupled {domain, stream, projection} triple plus
+// an optional consumer name for position tracking.
 type ProjectionIdentity struct {
-	Domain     string
-	Stream     string
-	Projection string
+	Domain       string
+	Stream       string
+	Projection   string // storage identity (view_projection_names)
+	ConsumerName string // position tracking (consumer_positions); defaults to Projection if empty
 }
 
 // NewProjectionIdentity creates a ProjectionIdentity from its component parts.
-func NewProjectionIdentity(domain, stream, projection string) ProjectionIdentity {
+// If consumerName is empty, it defaults to projection.
+func NewProjectionIdentity(domain, stream, projection, consumerName string) ProjectionIdentity {
+	if consumerName == "" {
+		consumerName = projection
+	}
 	return ProjectionIdentity{
-		Domain:     domain,
-		Stream:     stream,
-		Projection: projection,
+		Domain:       domain,
+		Stream:       stream,
+		Projection:   projection,
+		ConsumerName: consumerName,
 	}
 }
 
@@ -30,7 +37,22 @@ type ProjectionOption interface {
 	applyProjection(*Projection)
 }
 
-// ConsumerName overrides the default projection-name-as-consumer-name.
+// ProjectionName overrides the default projection name (which defaults to domain).
+// Use this to create a separate storage namespace for the projection.
+func ProjectionName(name string) ProjectionOption {
+	return projectionNameOption{name: name}
+}
+
+type projectionNameOption struct {
+	name string
+}
+
+func (o projectionNameOption) applyProjection(p *Projection) {
+	p.projectionName = o.name
+}
+
+// ConsumerName overrides the default consumer name (which defaults to domain).
+// Use this to create a separate position tracking identity for the projection.
 func ConsumerName(name string) ProjectionOption {
 	return consumerNameOption{name: name}
 }
@@ -45,10 +67,11 @@ func (o consumerNameOption) applyProjection(p *Projection) {
 
 // Projection defines a materialized view with typed per-kind handlers.
 type Projection struct {
-	domain       string
-	stream       string
-	consumerName string
-	handlers     map[string]rawHandler
+	domain         string
+	stream         string
+	projectionName string // storage identity, defaults to domain
+	consumerName   string // position tracking, defaults to domain
+	handlers       map[string]rawHandler
 }
 
 // rawHandler is a function that unmarshals raw JSON into a typed event,
@@ -56,13 +79,15 @@ type Projection struct {
 type rawHandler func(ctx context.Context, e v1.Envelope, rawJSON json.RawMessage, actx *ReduceContext) (*ReduceResult, error)
 
 // NewProjection creates a new Projection for the given domain and stream.
-// The projection name defaults to the consumer name for position tracking.
+// Both projection name and consumer name default to domain. Use ProjectionName
+// and ConsumerName options to override them independently.
 func NewProjection(domain, stream string, opts ...ProjectionOption) *Projection {
 	p := &Projection{
-		domain:       domain,
-		stream:       stream,
-		consumerName: domain,
-		handlers:     make(map[string]rawHandler),
+		domain:         domain,
+		stream:         stream,
+		projectionName: domain,
+		consumerName:   domain,
+		handlers:       make(map[string]rawHandler),
 	}
 	for _, opt := range opts {
 		opt.applyProjection(p)

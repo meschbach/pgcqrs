@@ -32,6 +32,7 @@ func (r *RemoteReader) Get(ctx context.Context, kind string, key Key, opts ...Ge
 		Projection: r.id.Projection,
 		Domain:     r.id.Domain,
 		Stream:     r.id.Stream,
+		Consumer:   r.id.ConsumerName,
 		Kind:       kind,
 		Key:        key.Parts(),
 	}
@@ -78,6 +79,7 @@ func (r *RemoteReader) Version(ctx context.Context) (int64, error) {
 		Projection: r.id.Projection,
 		Domain:     r.id.Domain,
 		Stream:     r.id.Stream,
+		Consumer:   r.id.ConsumerName,
 	})
 	if err != nil {
 		return 0, fmt.Errorf("get version: %w", err)

@@ -29,6 +29,7 @@ func (r *RemoteStore) Get(ctx context.Context, kind string, key Key) (*Entity, e
 		Projection: r.id.Projection,
 		Domain:     r.id.Domain,
 		Stream:     r.id.Stream,
+		Consumer:   r.id.ConsumerName,
 		Kind:       kind,
 		Key:        key.Parts(),
 	})
@@ -53,6 +54,7 @@ func (r *RemoteStore) Persist(ctx context.Context, result *ReduceResult, eventID
 		Projection: r.id.Projection,
 		Domain:     r.id.Domain,
 		Stream:     r.id.Stream,
+		Consumer:   r.id.ConsumerName,
 		EventId:    eventID,
 	}
 

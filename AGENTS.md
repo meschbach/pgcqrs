@@ -282,7 +282,7 @@ Both are automatically run via `./dev.sh up` when the system tests stage execute
 - Use `gofmt` and `goimports` for code formatting
 - Run `gofmt -w -s .` or `goimports -w .` before committing
 - No line length limit enforced by gofmt, but keep lines reasonable
-- **Generated files**: Do NOT manually edit or run formatters/linters on protobuf-generated files (`*.pb.go`, `*_grpc.pb.go`). These are auto-generated from `.proto` files and excluded via `.golangci.yml`. To regenerate, use `protoc` with the appropriate plugins.
+- **Generated files**: Do NOT manually edit or run formatters/linters on protobuf-generated files (`*.pb.go`, `*_grpc.pb.go`). These are auto-generated from `.proto` files and excluded via `.golangci.yml`. To regenerate, use `./gen-grpc.sh` (preferred) or `protoc` with the appropriate plugins.
 
 ### Linting
 

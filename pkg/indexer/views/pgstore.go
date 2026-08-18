@@ -173,7 +173,7 @@ func (s *PGStore) applyAndRecord(ctx context.Context, tx pgx.Tx, id ProjectionId
 		return nil, err
 	}
 
-	if err := s.writePosition(ctx, tx, streamID, id.Projection, eventID); err != nil {
+	if err := s.writePosition(ctx, tx, streamID, id.ConsumerName, eventID); err != nil {
 		return nil, err
 	}
 	return change, nil
@@ -295,9 +295,9 @@ func (s *PGStore) Version(ctx context.Context, id ProjectionIdentity) (int64, er
 	err = s.pool.QueryRow(ctx, `
 		SELECT COALESCE(cp.event_id, 0)
 		FROM view_projection_names vpn
-		JOIN consumer_positions cp ON cp.stream_id = vpn.stream_id AND cp.consumer = vpn.name
+		JOIN consumer_positions cp ON cp.stream_id = vpn.stream_id AND cp.consumer = $3
 		WHERE vpn.stream_id = $1 AND vpn.name = $2
-	`, streamID, id.Projection).Scan(&version)
+	`, streamID, id.Projection, id.ConsumerName).Scan(&version)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return 0, nil
 	}

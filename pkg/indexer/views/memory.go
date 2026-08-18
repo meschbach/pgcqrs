@@ -35,6 +35,9 @@ func entityKey(kind string, key Key) string {
 
 // Get retrieves an entity by kind and key.
 func (m *MemoryStore) Get(_ context.Context, kind string, key Key) (*Entity, error) {
+	if err := validateKey(key); err != nil {
+		return nil, err
+	}
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 	k := entityKey(kind, key)
@@ -49,6 +52,10 @@ func (m *MemoryStore) Get(_ context.Context, kind string, key Key) (*Entity, err
 // written. A nil result is treated as an empty result: the projection version
 // still advances to eventID.
 func (m *MemoryStore) Persist(_ context.Context, result *ReduceResult, eventID int64) (*Change, error) {
+	if err := validateReduceResult(result); err != nil {
+		return nil, err
+	}
+
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
@@ -83,6 +90,23 @@ func (m *MemoryStore) Persist(_ context.Context, result *ReduceResult, eventID i
 
 	m.version = eventID
 	return change, nil
+}
+
+func validateReduceResult(result *ReduceResult) error {
+	if result == nil {
+		return nil
+	}
+	for _, u := range result.Upserts {
+		if err := validateKey(u.Key); err != nil {
+			return err
+		}
+	}
+	for _, d := range result.Deletes {
+		if err := validateKey(d.Key); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // Version returns the last processed event ID.

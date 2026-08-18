@@ -7,6 +7,8 @@ import (
 
 	"github.com/meschbach/pgcqrs/pkg/indexer/views"
 	vgrpc "github.com/meschbach/pgcqrs/pkg/indexer/views/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 // StoreHandler implements the ViewProjectionStore gRPC service.
@@ -91,6 +93,9 @@ func (h *StoreHandler) buildApplyResponse(change *views.Change) (*vgrpc.ApplyMut
 // This is the write-path service: it serves plain snapshot reads only and never
 // waits on version. Version-constrained reads are served by ViewProjectionConsumer.
 func (h *StoreHandler) GetEntity(ctx context.Context, req *vgrpc.StoreGetEntityRequest) (*vgrpc.GetEntityResponse, error) {
+	if len(req.Key) == 0 {
+		return nil, status.Error(codes.InvalidArgument, "key must have at least 1 part")
+	}
 	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
 	entity, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
 	if err != nil {

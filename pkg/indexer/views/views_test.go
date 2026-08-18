@@ -198,3 +198,39 @@ func TestProjectionConsumerNameOverride(t *testing.T) {
 	proj := NewProjection("inventory", "items", ConsumerName("inventory-v2"))
 	assert.Equal(t, "inventory-v2", proj.consumerName)
 }
+
+func TestValidateKeyRejectsZeroParts(t *testing.T) {
+	t.Parallel()
+	store := NewMemoryStore()
+	ctx := t.Context()
+
+	// Get with zero-part key should return error
+	_, err := store.Get(ctx, "items", NewKey())
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "key must have 1 or 2 parts")
+
+	// Persist with zero-part key in upsert should return error
+	result := &ReduceResult{
+		Upserts: []Upsert{
+			{Kind: "items", Key: NewKey(), Value: "data"},
+		},
+	}
+	_, err = store.Persist(ctx, result, 1)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "key must have 1 or 2 parts")
+
+	// Persist with zero-part key in delete should return error
+	result = &ReduceResult{
+		Deletes: []Delete{
+			{Kind: "items", Key: NewKey()},
+		},
+	}
+	_, err = store.Persist(ctx, result, 2)
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "key must have 1 or 2 parts")
+
+	// Zero-value Key{} (no parts) should also be rejected
+	_, err = store.Get(ctx, "items", Key{})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), "key must have 1 or 2 parts")
+}

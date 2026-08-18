@@ -91,6 +91,9 @@ func (s *PGStore) Get(ctx context.Context, id ProjectionIdentity, kind string, k
 	}
 
 	parts := key.Parts()
+	if err := validateKey(key); err != nil {
+		return nil, err
+	}
 	if len(parts) == 1 {
 		return s.getSingle(ctx, projID, kindID, parts[0])
 	}
@@ -223,6 +226,9 @@ func (s *PGStore) applyUpsert(ctx context.Context, tx pgx.Tx, projID int64, u Up
 	}
 
 	parts := u.Key.Parts()
+	if err := validateKey(u.Key); err != nil {
+		return err
+	}
 	if len(parts) == 1 {
 		_, err = tx.Exec(ctx, `
 			INSERT INTO view_projection_entries_single (projection_id, kind_id, key, value, version, updated_at)
@@ -251,6 +257,9 @@ func (s *PGStore) applyDelete(ctx context.Context, tx pgx.Tx, projID int64, d De
 	}
 
 	parts := d.Key.Parts()
+	if err := validateKey(d.Key); err != nil {
+		return err
+	}
 	if len(parts) == 1 {
 		_, err = tx.Exec(ctx, `
 			DELETE FROM view_projection_entries_single

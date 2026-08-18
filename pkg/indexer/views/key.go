@@ -31,3 +31,12 @@ func (k Key) IsComposite() bool {
 func (k Key) IsSingle() bool {
 	return len(k.parts) == 1
 }
+
+// validateKey returns an error if the key does not have exactly 1 or 2 parts.
+func validateKey(key Key) error {
+	n := len(key.Parts())
+	if n == 0 || n > 2 {
+		return fmt.Errorf("views: key must have 1 or 2 parts, got %d", n)
+	}
+	return nil
+}

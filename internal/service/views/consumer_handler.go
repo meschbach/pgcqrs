@@ -11,6 +11,8 @@ import (
 
 	"github.com/meschbach/pgcqrs/pkg/indexer/views"
 	vgrpc "github.com/meschbach/pgcqrs/pkg/indexer/views/grpc"
+	"google.golang.org/grpc/codes"
+	grpcstatus "google.golang.org/grpc/status"
 )
 
 // ConsumerHandler implements the ViewProjectionConsumer gRPC service.
@@ -37,6 +39,9 @@ func NewConsumerHandler(store *views.PGStore, registry *NotifierRegistry, positi
 // GetEntity retrieves a projected entity by kind and key, resolving version
 // constraints. UntilVersion waits server-side via the notifier registry.
 func (h *ConsumerHandler) GetEntity(ctx context.Context, req *vgrpc.GetEntityRequest) (*vgrpc.GetEntityResponse, error) {
+	if len(req.Key) == 0 {
+		return nil, grpcstatus.Error(codes.InvalidArgument, "key must have at least 1 part")
+	}
 	id := views.NewProjectionIdentity(req.Domain, req.Stream, req.Projection)
 	entity, err := h.store.Get(ctx, id, req.Kind, views.NewKey(req.Key...))
 	if err != nil {

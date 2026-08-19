@@ -36,6 +36,7 @@ func TestMultipleProjectionsOnSameStream(t *testing.T) {
 
 	// Create two different projections on the same stream
 	proj1 := views.NewProjection(harness.appName, harness.streamName,
+		views.ProjectionName("projection-1"),
 		views.ConsumerName("projection-1"),
 		//nolint:dupl // Similar structure to ProductCreated handler but with different types (ItemCreated vs ProductCreated)
 		views.OnKind("ItemCreated", func(_ context.Context, _ v1.Envelope, evt *ItemCreated, _ *views.ReduceContext) (*views.ReduceResult, error) {
@@ -56,6 +57,7 @@ func TestMultipleProjectionsOnSameStream(t *testing.T) {
 	)
 
 	proj2 := views.NewProjection(harness.appName, harness.streamName,
+		views.ProjectionName("projection-2"),
 		views.ConsumerName("projection-2"),
 		views.OnKind("ItemCreated", func(_ context.Context, _ v1.Envelope, evt *ItemCreated, _ *views.ReduceContext) (*views.ReduceResult, error) {
 			return &views.ReduceResult{

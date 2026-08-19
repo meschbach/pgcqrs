@@ -109,10 +109,10 @@ SELECT es.id, $3, $4, NOW()
 FROM es
 CROSS JOIN (SELECT 1) AS stream_required
 WHERE NOT EXISTS (SELECT 1 FROM previous WHERE COALESCE(previous_event_id, 0) > $4)
-ON CONFLICT (stream_id, consumer) DO UPDATE 
+ON CONFLICT (stream_id, consumer) DO UPDATE
 SET event_id = EXCLUDED.event_id, updated_at = EXCLUDED.updated_at
 WHERE COALESCE(consumer_positions.event_id, 0) <= EXCLUDED.event_id
-RETURNING 
+RETURNING
     (SELECT previous_event_id FROM previous) as previous_event_id,
     $4 as current_event_id
 ```

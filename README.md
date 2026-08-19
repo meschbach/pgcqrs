@@ -24,7 +24,7 @@ Launch a local development environment via Docker Compose with the following:
     //submit events to be queried
     stream.MustSubmit(ctx, exampleKind, &Event{First: true})
     stream.MustSubmit(ctx, exampleKind, &Event{First: false})
-    
+
     // prepare a query to find all events with First == true
     q := query2.NewQuery(stream)
     q.OnKind(exampleKind).Subset(Event{First: true}).On(v1.EntityFunc(func(ctx context.Context, e v1.Envelope, entity Event) {

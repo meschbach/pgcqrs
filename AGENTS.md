@@ -310,10 +310,10 @@ Standard Go import grouping:
 import (
     "context"
     "fmt"
-    
+
     "github.com/example/package"
     "github.com/meschbach/pgcqrs/pkg/v1"
-    
+
     "go.opentelemetry.io/otel/trace"
     "golang.org/x/exp/slices"
 )
@@ -421,7 +421,7 @@ import (
     "context"
     "testing"
     "time"
-    
+
     "github.com/go-faker/faker/v4"
     "github.com/stretchr/testify/assert"
     "github.com/stretchr/testify/require"
@@ -443,10 +443,10 @@ Use the `MemoryHarness` helper for unit tests (found in `pkg/v1/query_test.go`):
 ```go
 func MemoryHarness(t *testing.T, perform func(ctx context.Context, h Harness)) {
     t.Parallel()
-    
+
     ctx, done := context.WithTimeout(context.Background(), 2*time.Second)
     defer done()
-    
+
     harness := Harness{
         appName:    faker.Name(),
         streamName: faker.Name(),
@@ -454,7 +454,7 @@ func MemoryHarness(t *testing.T, perform func(ctx context.Context, h Harness)) {
     mem := NewMemoryTransport()
     harness.system = NewSystem(mem)
     harness.stream = harness.system.MustStream(ctx, harness.appName, harness.streamName)
-    
+
     perform(ctx, harness)
 }
 ```

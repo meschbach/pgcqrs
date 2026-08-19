@@ -811,7 +811,7 @@ func (s *ConsumerStore) SetPosition(ctx context.Context, domain, stream, consume
 			WHERE COALESCE(consumer_positions.event_id, 0) <= EXCLUDED.event_id
 			RETURNING event_id
 		)
-		SELECT 
+		SELECT
 			(SELECT event_id FROM prev) as previous_event_id,
 			(SELECT event_id FROM upsert) as current_event_id`,
 		streamID, consumer, consumerID, eventID).Scan(&previousEventID, &currentEventID)

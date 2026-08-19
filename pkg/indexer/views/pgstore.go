@@ -104,7 +104,7 @@ func (s *PGStore) Get(ctx context.Context, id ProjectionIdentity, kind string, k
 	return s.getComposite(ctx, projID, kindID, kind, parts[0], parts[1])
 }
 
-func (s *PGStore) getSingle(ctx context.Context, projID, kindID int64, kind string, k string) (*Entity, error) {
+func (s *PGStore) getSingle(ctx context.Context, projID, kindID int64, kind, k string) (*Entity, error) {
 	var value []byte
 	var version int64
 	err := s.pool.QueryRow(ctx, `
@@ -120,7 +120,7 @@ func (s *PGStore) getSingle(ctx context.Context, projID, kindID int64, kind stri
 	return &Entity{Kind: kind, Key: NewKey(k), Value: value, Version: version}, nil
 }
 
-func (s *PGStore) getComposite(ctx context.Context, projID, kindID int64, kind string, k1, k2 string) (*Entity, error) {
+func (s *PGStore) getComposite(ctx context.Context, projID, kindID int64, kind, k1, k2 string) (*Entity, error) {
 	var value []byte
 	var version int64
 	err := s.pool.QueryRow(ctx, `

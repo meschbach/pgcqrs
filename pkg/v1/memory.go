@@ -262,6 +262,7 @@ func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event 
 
 	var out int64
 	var lockErr error
+	var emitErr error
 	if err := m.simulateNetwork(ctx, &memoryFuncOp{func(m *memory) {
 		lockErr = m.checkLock(domain, stream, cfg.lock)
 		if lockErr != nil {
@@ -277,13 +278,16 @@ func (m *memory) Submit(ctx context.Context, domain, stream, kind string, event 
 			data: bytes,
 		}
 		stream.packets = append(stream.packets, packet)
-		_ = stream.onAddPacket.Emit(context.Background(), out)
+		emitErr = stream.onAddPacket.Emit(ctx, out)
 	}}); err != nil {
 		return nil, err
 	}
 
 	if lockErr != nil {
 		return nil, lockErr
+	}
+	if emitErr != nil {
+		return nil, emitErr
 	}
 
 	return &Submitted{

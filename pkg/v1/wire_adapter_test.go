@@ -134,10 +134,11 @@ func TestMemoryWire_WaitForLock_LostWakeupRace(t *testing.T) {
 		// Release in a goroutine after a short delay. This fires while
 		// holder2 is blocked inside tryAcquire (before the select).
 		ready := make(chan struct{})
+		releaseDone := make(chan error, 1)
 		go func() {
 			close(ready)
 			time.Sleep(5 * time.Millisecond)
-			_ = lock1.Release(ctx)
+			releaseDone <- lock1.Release(ctx)
 		}()
 
 		<-ready
@@ -150,6 +151,7 @@ func TestMemoryWire_WaitForLock_LostWakeupRace(t *testing.T) {
 		require.NoError(t, err)
 		require.NotNil(t, lock2)
 		require.NoError(t, lock2.Release(ctx))
+		require.NoError(t, <-releaseDone)
 	})
 
 	t.Run("MultipleReleasesAreDelivered", func(t *testing.T) {

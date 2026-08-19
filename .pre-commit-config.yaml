@@ -21,3 +21,11 @@ repos:
     rev: v2.12.2
     hooks:
       - id: golangci-lint
+  - repo: local
+    hooks:
+      - id: golangci-lint-full
+        name: golangci-lint (full repo)
+        entry: golangci-lint run ./...
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

@@ -234,15 +234,8 @@ func (p *Pump[L]) runWatchLoop(ctx context.Context, watch *query2.Watch, keepAli
 		if err == context.DeadlineExceeded {
 			// No event within heartbeat interval — send proactive heartbeat
 			p.metrics.recordProactiveHeartbeat(ctx)
-			if err := keepAlive.Heartbeat(ctx, *position); err != nil {
-				// Check for HeartbeatConflictError - update position and continue
-				var conflictErr *v1.HeartbeatConflictError
-				if errors.As(err, &conflictErr) {
-					*position = conflictErr.CurrentVersion
-					continue
-				}
-				// Any other heartbeat error is a lock loss
-				return &RecoverableError{Err: err}
+			if err := p.applyHeartbeat(ctx, keepAlive, position); err != nil {
+				return err
 			}
 			continue
 		}
@@ -260,15 +253,24 @@ func (p *Pump[L]) runWatchLoop(ctx context.Context, watch *query2.Watch, keepAli
 
 		// Heartbeat with current position
 		p.metrics.recordEventDrivenHeartbeat(ctx)
-		if err := keepAlive.Heartbeat(ctx, *position); err != nil {
-			// Check for HeartbeatConflictError - update position and continue
-			var conflictErr *v1.HeartbeatConflictError
-			if errors.As(err, &conflictErr) {
-				*position = conflictErr.CurrentVersion
-				continue
-			}
-			// Any other heartbeat error is a lock loss
-			return &RecoverableError{Err: err}
+		if err := p.applyHeartbeat(ctx, keepAlive, position); err != nil {
+			return err
 		}
 	}
+}
+
+// applyHeartbeat sends a heartbeat and reconciles the result. A conflict
+// error updates *position and returns nil so the caller can continue.
+// Any other error signals a lock loss.
+func (p *Pump[L]) applyHeartbeat(ctx context.Context, keepAlive L, position *int64) error {
+	err := keepAlive.Heartbeat(ctx, *position)
+	if err == nil {
+		return nil
+	}
+	var conflictErr *v1.HeartbeatConflictError
+	if errors.As(err, &conflictErr) {
+		*position = conflictErr.CurrentVersion
+		return nil
+	}
+	return &RecoverableError{Err: err}
 }

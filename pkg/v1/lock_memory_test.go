@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +25,8 @@ func TestMemoryTryAcquire(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("RejectsTTLBelowMinimum", func(t *testing.T) {
 		t.Parallel()
@@ -62,7 +64,7 @@ func TestMemoryTryAcquire(t *testing.T) {
 		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		otherHolder := faker.Word()
+		otherHolder := holders.Next()
 		result, err := m.TryAcquire(ctx, domain, stream, consumer, otherHolder, 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -163,7 +165,8 @@ func TestMemoryRelease(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("ExplicitRelease", func(t *testing.T) {
 		t.Parallel()
@@ -202,7 +205,7 @@ func TestMemoryRelease(t *testing.T) {
 		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		otherHolder := faker.Word()
+		otherHolder := holders.Next()
 		err = m.Release(ctx, domain, stream, consumer, otherHolder)
 		require.Error(t, err)
 		var lockNotHeld *LockNotHeldError
@@ -324,7 +327,8 @@ func TestMemoryHeartbeatWithPosition(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("SuccessfulHeartbeat", func(t *testing.T) {
 		t.Parallel()
@@ -421,7 +425,8 @@ func TestMemoryLockOptionOnSubmit(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("ValidLockSucceeds", func(t *testing.T) {
 		t.Parallel()
@@ -487,7 +492,8 @@ func TestMemoryClockInjection(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("AdvancePastTTLTryAcquireSucceeds", func(t *testing.T) {
 		t.Parallel()
@@ -502,7 +508,7 @@ func TestMemoryClockInjection(t *testing.T) {
 
 		m.now = func() time.Time { return frozen.Add(11 * time.Second) }
 
-		otherHolder := faker.Word()
+		otherHolder := holders.Next()
 		result, err := m.TryAcquire(ctx, domain, stream, consumer, otherHolder, 10*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -579,8 +585,9 @@ func TestMemoryTryAcquire_PositionInvariant(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder1 := faker.Word()
-	holder2 := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder1 := holders.Next()
+	holder2 := holders.Next()
 
 	t.Run("AcquiredReturnsPositionGteZero", func(t *testing.T) {
 		t.Parallel()

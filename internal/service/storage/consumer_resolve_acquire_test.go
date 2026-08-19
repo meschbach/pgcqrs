@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-faker/faker/v4"
+	f "github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -33,10 +34,11 @@ func TestConsumerStore_ResolveConsumerName(t *testing.T) {
 		t.Parallel()
 		store := NewConsumerStore(WithDatabaseConnection(t))
 
-		id1, err := store.resolveConsumerName(ctx, faker.Word())
+		names := f.NewUniqueKebab()
+		id1, err := store.resolveConsumerName(ctx, names.Next())
 		require.NoError(t, err)
 
-		id2, err := store.resolveConsumerName(ctx, faker.Word())
+		id2, err := store.resolveConsumerName(ctx, names.Next())
 		require.NoError(t, err)
 		assert.NotEqual(t, id1, id2)
 	})
@@ -49,7 +51,8 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 	domain := domainUniqueness.Next()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := f.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("RejectsTTLBelowMinimum", func(t *testing.T) {
 		t.Parallel()
@@ -87,7 +90,7 @@ func TestConsumerStore_TryAcquire(t *testing.T) {
 		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		otherHolder := faker.Word()
+		otherHolder := holders.Next()
 		result, _, err := store.TryAcquire(ctx, domain, stream, consumer, otherHolder, 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result)

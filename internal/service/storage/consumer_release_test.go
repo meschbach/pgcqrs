@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"github.com/go-faker/faker/v4"
+	f "github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -17,7 +18,8 @@ func TestConsumerStore_Release(t *testing.T) {
 	domain := domainUniqueness.Next()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := f.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("ExplicitRelease", func(t *testing.T) {
 		t.Parallel()
@@ -56,7 +58,7 @@ func TestConsumerStore_Release(t *testing.T) {
 		_, _, err := store.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		otherHolder := faker.Word()
+		otherHolder := holders.Next()
 		_, err = store.Release(ctx, domain, stream, consumer, otherHolder)
 		require.Error(t, err)
 		var lockNotHeld *v1.LockNotHeldError

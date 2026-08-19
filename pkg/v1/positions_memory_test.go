@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -79,8 +80,9 @@ func TestMemoryTransportListConsumers(t *testing.T) {
 		assert.Empty(t, consumers)
 
 		// Create two consumers
-		consumer1 := faker.Name()
-		consumer2 := faker.Name()
+		consumerNames := faking.NewUniqueKebab()
+		consumer1 := consumerNames.Next()
+		consumer2 := consumerNames.Next()
 		event := h.stream.MustSubmit(ctx, faker.Word(), &PutEvent{Value: faker.Word()})
 
 		_, err = h.system.Transport.SetPosition(ctx, h.appName, h.streamName, consumer1, event.ID)

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/meschbach/pgcqrs/pkg/v1/query2"
 	"github.com/stretchr/testify/assert"
@@ -77,9 +78,10 @@ func TestKindMatch(t *testing.T) {
 		t.Parallel()
 		h, _, _ := setupHarnessT(t)
 
-		kind1 := faker.FirstName()
+		kinds := faking.NewUniqueKebab()
+		kind1 := kinds.Next()
 		doc1, doc1ID := genDoc(t, h, kind1)
-		kind2 := faker.FirstName()
+		kind2 := kinds.Next()
 		doc2, doc2ID := genDoc(t, h, kind2)
 
 		t.Run("When given two kinds matching a document then each document is supplied once", func(t *testing.T) {

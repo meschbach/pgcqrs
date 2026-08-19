@@ -276,9 +276,12 @@ func (c *HTTPTransportLayer) DeletePosition(parent context.Context, domain, stre
 	return nil
 }
 
-// Watch sets up a watch on the remote service.
+// Watch is intentionally not supported over HTTP. The watch subsystem relies on
+// server-streaming (gRPC) or long-lived connections to push events to clients.
+// HTTP's request-response model cannot support this pattern. Callers using the
+// HTTP transport should use QueryBatchR2 for polling instead.
 func (c *HTTPTransportLayer) Watch(_ context.Context, _ *ipc.QueryIn) (WatchInternal, error) {
-	return nil, errors.New("not implemented")
+	return nil, errors.New("HTTP transport does not support Watch; use QueryBatchR2 for polling or switch to gRPC transport")
 }
 
 // TryAcquire is not implemented for HTTP transport.
@@ -334,4 +337,15 @@ type BadResponseCode struct {
 
 func (b *BadResponseCode) Error() string {
 	return fmt.Sprintf("bad response code %d for %s", b.Code, b.URL)
+}
+
+// OnLockRelease is a no-op for HTTP transport since lock release notifications
+// are handled via the WaitForLock RPC on the server side.
+func (c *HTTPTransportLayer) OnLockRelease(_ func(context.Context, LockReleasedEvent) error) func() {
+	return func() {}
+}
+
+// Close is a no-op for HTTP transport.
+func (c *HTTPTransportLayer) Close() error {
+	return nil
 }

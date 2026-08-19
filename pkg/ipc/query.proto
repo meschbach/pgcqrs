@@ -55,6 +55,8 @@ service ConsumerLock {
   rpc KeepAlive(stream KeepAliveClientMessage) returns (stream KeepAliveServerMessage);
   // ListLocks returns all active locks for a domain/stream pair.
   rpc ListLocks(ListLocksIn) returns (ListLocksOut);
+  // WaitForLock blocks until the lock is available, then returns lock details.
+  rpc WaitForLock(WaitForLockRequest) returns (stream LockGranted);
 }
 
 message CreateStreamIn {
@@ -347,6 +349,9 @@ message TryAcquireOut {
   string held_by = 2;
   google.protobuf.Timestamp guarantee_until = 3;
   google.protobuf.Timestamp held_until = 4;
+  // position is the consumer's current stream position when acquired=true;
+  // -1 otherwise (not applicable).
+  int64 position = 5;
 }
 
 message ReleaseIn {
@@ -380,10 +385,12 @@ message LockState {
 }
 
 // KeepAliveClientMessage is sent from client to server in the KeepAlive bidirectional stream.
+// The bind message must be the first message on the stream and establishes the lock context.
 message KeepAliveClientMessage {
   oneof message {
     KeepAliveHeartbeat heartbeat = 1;
     KeepAliveReleaseRequest release_request = 2;
+    KeepAliveBindRequest bind = 4;
   }
 }
 
@@ -396,12 +403,43 @@ message KeepAliveHeartbeat {
 
 message KeepAliveReleaseRequest {}
 
+// KeepAliveBindRequest establishes the lock context for a KeepAlive stream.
+// It must be the first message sent on the stream.
+message KeepAliveBindRequest {
+  string domain = 1;
+  string stream = 2;
+  string consumer = 3;
+  string holder = 4;
+}
+
 // KeepAliveServerMessage is sent from server to client in the KeepAlive bidirectional stream.
 message KeepAliveServerMessage {
   oneof message {
     KeepAliveLockStatus lock_status = 1;
     KeepAliveReleaseAck release_ack = 2;
+    LockLost lock_lost = 3;
   }
+}
+
+message LockLost {
+  string reason = 1;
+}
+
+// WaitForLockRequest is sent to block until a lock is available.
+message WaitForLockRequest {
+  DomainStream events = 1;
+  string consumer = 2;
+  string holder = 3;
+  int32 ttl_seconds = 4;
+}
+
+// LockGranted is returned when a lock is successfully acquired via WaitForLock.
+message LockGranted {
+  // position is the consumer's stored position; 0 = no position recorded
+  // (start from the beginning of the stream).
+  int64 position = 1;
+  int64 heartbeat_interval_ms = 2;
+  int64 deadline_ms = 3;
 }
 
 message KeepAliveLockStatus {

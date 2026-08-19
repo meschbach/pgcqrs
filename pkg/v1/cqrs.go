@@ -72,3 +72,8 @@ func (s *System) ListStreams(ctx context.Context) ([]DomainStreamPair, error) {
 func NewSystem(storage Transport) *System {
 	return &System{Transport: storage}
 }
+
+// Close releases any resources owned by the transport backing this System.
+func (s *System) Close() error {
+	return s.Transport.Close()
+}

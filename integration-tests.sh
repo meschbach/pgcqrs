@@ -1,8 +1,9 @@
 #!/bin/bash
 
-set -e
+set -xe
 
 MODE="${1:-local}"
+INTEGRATION_RUN_COUNT="${INTEGRATION_RUN_COUNT:-1}"
 
 case "$MODE" in
   local)
@@ -32,16 +33,16 @@ echo "=== Memory transport tests ==="
 export PGCQRS_TEST_TRANSPORT="memory"
 export PGCQRS_TEST_URL="$HTTP_URL"
 export PGCQRS_TEST_APP_BASE="systest-"
-go test -count=1 --timeout 5s ./systest/...
+go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/...
 
 echo "=== HTTP transport tests ==="
 export PGCQRS_TEST_URL="$HTTP_URL"
 export PGCQRS_TEST_APP_BASE="systest-"
 unset PGCQRS_TEST_TRANSPORT
-go test -count=1 --timeout 5s ./systest/...
+go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/...
 
 echo "=== gRPC transport tests ==="
 export PGCQRS_TEST_TRANSPORT="grpc"
 export PGCQRS_TEST_URL="$GRPC_URL"
 export PGCQRS_TEST_APP_BASE="systest-"
-go test -count=1 --timeout 5s ./systest/...
+go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/...

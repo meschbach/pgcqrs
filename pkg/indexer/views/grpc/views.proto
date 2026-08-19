@@ -1,0 +1,132 @@
+syntax = "proto3";
+package views;
+option go_package = "github.com/meschbach/pgcqrs/pkg/indexer/views/grpc";
+
+// ViewProjectionStore provides KV storage for view projections.
+// Used by the Pump (in the developer's process) for mutations and previous-state reads.
+service ViewProjectionStore {
+    rpc ApplyMutations(ApplyMutationsRequest) returns (ApplyMutationsResponse);
+    rpc GetEntity(StoreGetEntityRequest) returns (GetEntityResponse);
+}
+
+// ViewProjectionConsumer serves entity state to remote clients (webapps, downstream indexers).
+service ViewProjectionConsumer {
+    rpc GetEntity(GetEntityRequest) returns (GetEntityResponse);
+    rpc Version(VersionRequest) returns (VersionResponse);
+    rpc WatchChanges(WatchChangesRequest) returns (stream WatchChangesResponse);
+}
+
+// --- ViewProjectionStore messages ---
+
+message ApplyMutationsRequest {
+    string projection = 1;
+    repeated Upsert upserts = 2;
+    repeated Delete deletes = 3;
+    int64 event_id = 4;
+    string domain = 5;
+    string stream = 6;
+    string consumer = 7; // optional; defaults to projection if empty
+}
+
+message ApplyMutationsResponse {
+    repeated Upsert applied_upserts = 1;
+    repeated Delete applied_deletes = 2;
+    int64 version = 3;
+}
+
+// --- Shared messages ---
+
+message Entity {
+    string kind = 1;
+    repeated string key = 2;
+    bytes value = 3;
+    int64 version = 4;
+}
+
+message Upsert {
+    string kind = 1;
+    repeated string key = 2;
+    bytes value = 3;
+    int64 version = 4;
+}
+
+message Delete {
+    string kind = 1;
+    repeated string key = 2;
+    int64 version = 3;
+}
+
+message AfterConstraint {
+    int64 version = 1;
+}
+
+message UntilVersionConstraint {
+    int64 version = 1;
+    int64 timeout_ms = 2;
+}
+
+// StoreGetEntityRequest is the plain entity read used by the write-path service.
+// It intentionally carries no version constraints: ViewProjectionStore is the
+// Pump's storage backend and must never wait on version. Constrained reads are
+// served by ViewProjectionConsumer.GetEntity.
+message StoreGetEntityRequest {
+    string projection = 1;
+    string kind = 2;
+    repeated string key = 3;
+    string domain = 4;
+    string stream = 5;
+    string consumer = 6; // optional; defaults to projection if empty
+}
+
+message GetEntityRequest {
+    string projection = 1;
+    string kind = 2;
+    repeated string key = 3;
+    oneof version_constraint {
+        AfterConstraint after = 4;
+        UntilVersionConstraint until_version = 5;
+    }
+    string domain = 6;
+    string stream = 7;
+    string consumer = 8; // optional; defaults to projection if empty
+}
+
+// GetStatus reports how a GetEntity was resolved.
+enum GetStatus {
+    GET_STATUS_OK = 0;
+    GET_STATUS_NOT_FOUND = 1;
+    GET_STATUS_STALE = 2;
+    GET_STATUS_TIMEOUT = 3;
+}
+
+message GetEntityResponse {
+    Entity entity = 1;
+    GetStatus status = 2;
+}
+
+// --- ViewProjectionConsumer messages ---
+
+message VersionRequest {
+    string projection = 1;
+    string domain = 2;
+    string stream = 3;
+    string consumer = 4; // optional; defaults to projection if empty
+}
+
+message VersionResponse {
+    int64 version = 1;
+}
+
+message WatchChangesRequest {
+    string projection = 1;
+    AfterConstraint after_version = 2;
+    string domain = 3;
+    string stream = 4;
+    string consumer = 5; // optional; defaults to projection if empty
+}
+
+message WatchChangesResponse {
+    repeated Upsert upserts = 1;
+    repeated Delete deletes = 2;
+    int64 version = 3;
+}

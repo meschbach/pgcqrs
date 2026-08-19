@@ -272,6 +272,7 @@ func Serve(ctx context.Context, cfg *Config) {
 				core:          s.repository,
 				bus:           s.bus,
 				consumerStore: s.consumerStore,
+				pool:          pool,
 			})
 		}
 		appDone = app.ServeBackground(ctx)

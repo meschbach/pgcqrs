@@ -42,6 +42,13 @@ type LockResult struct {
 	// HeldUntil is the absolute expiry time of the lock. After HeldUntil,
 	// the lock may be acquired by another holder.
 	HeldUntil time.Time
+	// Position is the consumer's current position in the stream at acquisition
+	// time. Meaningful only when Acquired == true:
+	//   - >= 0: the consumer's stored position; 0 means no position recorded
+	//     (resume from the beginning of the stream).
+	//   - -1:   position not applicable (Acquired == false) or could not be
+	//     determined. Never meaningful; diagnostic only.
+	Position int64
 }
 
 // LockState represents the current state of a consumer lock.
@@ -59,6 +66,14 @@ type LockState struct {
 	// HeldUntil is the absolute expiry time of the lock. After HeldUntil,
 	// the lock may be acquired by another holder.
 	HeldUntil time.Time
+}
+
+// LockReleasedEvent is emitted when a consumer lock is released.
+type LockReleasedEvent struct {
+	Domain   string
+	Stream   string
+	Consumer string
+	Holder   string
 }
 
 // LockNotHeldError is returned when a lock assertion fails.

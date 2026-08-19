@@ -2,7 +2,7 @@
 
 ## Purpose
 
-TBD
+Consumer locks provide durable distributed locks for consumers, enabling exclusive access to a (domain, stream) partition. This prevents duplicate processing across instances (e.g., multiple embedding indexers running simultaneously) and provides inspectability into who is processing what. Locks are renewed via heartbeat streams that atomically carry the consumer's position, ensuring both lock validity and progress tracking in a single transaction.
 
 ## Requirements
 

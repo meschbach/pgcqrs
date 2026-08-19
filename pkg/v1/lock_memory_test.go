@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
@@ -24,7 +25,8 @@ func TestMemoryTryAcquire(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("RejectsTTLBelowMinimum", func(t *testing.T) {
 		t.Parallel()
@@ -62,7 +64,7 @@ func TestMemoryTryAcquire(t *testing.T) {
 		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		otherHolder := faker.Word()
+		otherHolder := holders.Next()
 		result, err := m.TryAcquire(ctx, domain, stream, consumer, otherHolder, 30*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -163,7 +165,8 @@ func TestMemoryRelease(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("ExplicitRelease", func(t *testing.T) {
 		t.Parallel()
@@ -202,7 +205,7 @@ func TestMemoryRelease(t *testing.T) {
 		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 30*time.Second)
 		require.NoError(t, err)
 
-		otherHolder := faker.Word()
+		otherHolder := holders.Next()
 		err = m.Release(ctx, domain, stream, consumer, otherHolder)
 		require.Error(t, err)
 		var lockNotHeld *LockNotHeldError
@@ -324,7 +327,8 @@ func TestMemoryHeartbeatWithPosition(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("SuccessfulHeartbeat", func(t *testing.T) {
 		t.Parallel()
@@ -421,7 +425,8 @@ func TestMemoryLockOptionOnSubmit(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("ValidLockSucceeds", func(t *testing.T) {
 		t.Parallel()
@@ -487,7 +492,8 @@ func TestMemoryClockInjection(t *testing.T) {
 	domain := faker.Word()
 	stream := faker.Word()
 	consumer := faker.Word()
-	holder := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder := holders.Next()
 
 	t.Run("AdvancePastTTLTryAcquireSucceeds", func(t *testing.T) {
 		t.Parallel()
@@ -502,7 +508,7 @@ func TestMemoryClockInjection(t *testing.T) {
 
 		m.now = func() time.Time { return frozen.Add(11 * time.Second) }
 
-		otherHolder := faker.Word()
+		otherHolder := holders.Next()
 		result, err := m.TryAcquire(ctx, domain, stream, consumer, otherHolder, 10*time.Second)
 		require.NoError(t, err)
 		require.NotNil(t, result)
@@ -570,5 +576,119 @@ func TestMemoryClockInjection(t *testing.T) {
 		require.Error(t, err)
 		var lockErr *LockNotHeldError
 		require.ErrorAs(t, err, &lockErr)
+	})
+}
+
+func TestMemoryTryAcquire_PositionInvariant(t *testing.T) {
+	t.Parallel()
+
+	domain := faker.Word()
+	stream := faker.Word()
+	consumer := faker.Word()
+	holders := faking.NewUniqueKebab()
+	holder1 := holders.Next()
+	holder2 := holders.Next()
+
+	t.Run("AcquiredReturnsPositionGteZero", func(t *testing.T) {
+		t.Parallel()
+		m := newTestMemory(t)
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		result, err := m.TryAcquire(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		require.NoError(t, err)
+		require.True(t, result.Acquired)
+		assert.GreaterOrEqual(t, result.Position, int64(0), "acquired result must have Position >= 0")
+	})
+
+	t.Run("ConflictReturnsSentinel", func(t *testing.T) {
+		t.Parallel()
+		m := newTestMemory(t)
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		require.NoError(t, err)
+
+		result, err := m.TryAcquire(ctx, domain, stream, consumer, holder2, 30*time.Second)
+		require.NoError(t, err)
+		require.False(t, result.Acquired)
+		assert.Equal(t, int64(-1), result.Position, "conflict must return sentinel -1")
+	})
+
+	t.Run("AcquiredReturnsStoredPosition", func(t *testing.T) {
+		t.Parallel()
+		m := newTestMemory(t)
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		_, err := m.SetPosition(ctx, domain, stream, consumer, 77)
+		require.NoError(t, err)
+
+		result, err := m.TryAcquire(ctx, domain, stream, consumer, holder1, 30*time.Second)
+		require.NoError(t, err)
+		require.True(t, result.Acquired)
+		assert.Equal(t, int64(77), result.Position, "acquired result must return stored position")
+	})
+}
+
+func TestMemoryLockExpiry_GenerationGuard(t *testing.T) {
+	t.Parallel()
+
+	domain := faker.Word()
+	stream := faker.Word()
+	consumer := faker.Word()
+	holder := faker.Word()
+
+	t.Run("StaleTimerDoesNotDeleteRenewedLock", func(t *testing.T) {
+		t.Parallel()
+		frozen := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		m := newTestMemory(t)
+		m.now = func() time.Time { return frozen }
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		// Acquire with a 10s TTL. The expiry timer fires at frozen+10s.
+		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 10*time.Second)
+		require.NoError(t, err)
+
+		// Advance to 8s — before the timer fires — and heartbeat.
+		// This increments the generation and reschedules the timer to frozen+18s.
+		m.now = func() time.Time { return frozen.Add(8 * time.Second) }
+		err = m.HeartbeatWithPosition(ctx, domain, stream, consumer, holder, 0)
+		require.NoError(t, err)
+
+		// Advance to 10s — the original timer fires. But the generation
+		// no longer matches, so the lock must survive.
+		m.now = func() time.Time { return frozen.Add(10 * time.Second) }
+		// Allow the timer goroutine to fire and be processed.
+		time.Sleep(50 * time.Millisecond)
+
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
+		require.NoError(t, err)
+		require.True(t, found, "lock should survive stale timer — generation mismatch")
+		assert.Equal(t, holder, state.Holder)
+	})
+
+	t.Run("UnrenewedLockExpiresNaturally", func(t *testing.T) {
+		t.Parallel()
+		frozen := time.Date(2025, 1, 1, 0, 0, 0, 0, time.UTC)
+		m := newTestMemory(t)
+		m.now = func() time.Time { return frozen }
+		ctx := t.Context()
+		require.NoError(t, m.EnsureStream(ctx, domain, stream))
+
+		// Acquire with a 10s TTL, no heartbeat.
+		_, err := m.TryAcquire(ctx, domain, stream, consumer, holder, 10*time.Second)
+		require.NoError(t, err)
+
+		// Advance past the TTL. The timer fires with matching generation.
+		m.now = func() time.Time { return frozen.Add(11 * time.Second) }
+		time.Sleep(50 * time.Millisecond)
+
+		state, found, err := m.GetLock(ctx, domain, stream, consumer)
+		require.NoError(t, err)
+		assert.False(t, found, "unrenewed lock should expire")
+		assert.Nil(t, state)
 	})
 }

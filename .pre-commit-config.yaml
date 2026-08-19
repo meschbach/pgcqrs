@@ -1,0 +1,31 @@
+exclude: '\.diff$'
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+      - id: end-of-file-fixer
+      - id: check-merge-conflict
+      - id: check-yaml
+        exclude: 'deploy/pgcqrs/templates/'
+      - id: check-added-large-files
+  - repo: local
+    hooks:
+      - id: golangci-lint-config-verify
+        name: Verify golangci-lint config
+        entry: golangci-lint config verify
+        language: system
+        files: ^\.golangci\.yml$
+        pass_filenames: false
+  - repo: https://github.com/golangci/golangci-lint
+    rev: v2.12.2
+    hooks:
+      - id: golangci-lint
+  - repo: local
+    hooks:
+      - id: golangci-lint-full
+        name: golangci-lint (full repo)
+        entry: golangci-lint run ./...
+        language: system
+        pass_filenames: false
+        stages: [pre-push]

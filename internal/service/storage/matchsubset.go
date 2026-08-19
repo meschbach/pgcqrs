@@ -13,7 +13,12 @@ type MatchSubset struct {
 	Op      int
 	Kind    string
 	Subset  json.RawMessage
-	AfterID *int64
+	AfterID int64
+}
+
+// UpdateAfterID sets the cursor for filtering events after the given ID.
+func (m *MatchSubset) UpdateAfterID(id int64) {
+	m.AfterID = id
 }
 
 func (m *MatchSubset) append(q *SQLQuery) {
@@ -24,8 +29,8 @@ INNER JOIN events_stream es ON e.stream_id = es.id
 WHERE es.app = %s and es.stream = %s and ek.kind = %s AND e.event @> %s`,
 		m.Op, q.hole(m.App), q.hole(m.Stream), q.hole(m.Kind), q.hole(m.Subset))
 
-	if m.AfterID != nil {
-		query += fmt.Sprintf(" AND e.id > %s", q.hole(*m.AfterID))
+	if m.AfterID > 0 {
+		query += fmt.Sprintf(" AND e.id > %s", q.hole(m.AfterID))
 	}
 
 	q.append(query)

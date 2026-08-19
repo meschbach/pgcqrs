@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/pgcqrs/pkg/junk/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -23,8 +24,9 @@ func TestMultiKindMatch(t *testing.T) {
 		ctx := harness.ctx
 		stream := harness.stream
 
-		kind1 := faker.Name()
-		kind2 := faker.Name()
+		kinds := faking.NewUniqueKebab()
+		kind1 := kinds.Next()
+		kind2 := kinds.Next()
 
 		value1 := faker.Name()
 		value1Sub, err := stream.Submit(ctx, kind1, Example{Value: value1})

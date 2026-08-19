@@ -10,6 +10,15 @@ linters:
     paths:
       - cmd
       - examples
+      # Exclude protobuf generated files
+      - ".*\\.pb\\.go$"
+      - ".*_grpc\\.pb\\.go$"
+    rules:
+      # doc_test files are bare-minimum examples, not exhaustive tests
+      - path: "doc_test\\.go$"
+        linters:
+          - errcheck
+          - revive
   enable:
     # Core
     - errcheck
@@ -17,10 +26,10 @@ linters:
     - ineffassign
     - staticcheck
     - unused
-    
+
     # Security
     - gosec
-    
+
     # Code quality
     - gocritic
     - gocyclo
@@ -34,11 +43,11 @@ linters:
     - makezero
     - prealloc
     - revive
-    
+
     # Testing
     - paralleltest
     - testifylint
-    
+
     # Modern practices
     - exhaustive
     - forbidigo

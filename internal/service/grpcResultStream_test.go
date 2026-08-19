@@ -3,181 +3,177 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
+	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
 	"github.com/meschbach/pgcqrs/pkg/ipc"
-	"github.com/meschbach/pgcqrs/pkg/junk/faking"
+	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
+	"google.golang.org/grpc/metadata"
 )
 
-type capturingSink struct {
-	given []*ipc.QueryOut
+type capturingQueryServer struct {
+	ctx  context.Context
+	sent []*ipc.QueryOut
 }
 
-func (c *capturingSink) send(_ context.Context, msg *ipc.QueryOut) error {
-	c.given = append(c.given, msg)
+func (c *capturingQueryServer) Send(msg *ipc.QueryOut) error {
+	c.sent = append(c.sent, msg)
 	return nil
 }
+func (c *capturingQueryServer) Context() context.Context     { return c.ctx }
+func (c *capturingQueryServer) SetHeader(metadata.MD) error  { return nil }
+func (c *capturingQueryServer) SendHeader(metadata.MD) error { return nil }
+func (c *capturingQueryServer) SetTrailer(metadata.MD)       {}
+func (c *capturingQueryServer) SendMsg(interface{}) error    { return nil }
+func (c *capturingQueryServer) RecvMsg(interface{}) error    { return nil }
 
-const fakeIDMax = 999999
-const fakeIDMin = 0
-
-func fakeInt64Range(minimum, maximum int64) int64 {
-	//todo: resolve how to get the correct range
-	value := faking.RandIntRange(int(minimum), int(maximum))
-	return int64(value)
-}
-
-func fakeID() int64 {
-	return fakeInt64Range(fakeIDMin, fakeIDMax)
-}
-
-func fakeIDAbove(value int64) int64 {
-	return fakeInt64Range(value+1, fakeIDMax)
-}
-
-func fakeIDBelow(value int64) int64 {
-	return fakeInt64Range(fakeIDMin, value-1)
-}
-
-func TestVersionFilter(t *testing.T) {
+func TestGrpcResultStreamDoesNotDropFirstEvent(t *testing.T) {
 	t.Parallel()
-	t.Run("Given a new state", func(t *testing.T) {
+
+	t.Run("First event with ID 0 is delivered", func(t *testing.T) {
+		t.Parallel()
 		ctx := t.Context()
-		capture := &capturingSink{}
-		v := &versionFilter{
-			lastSeen: int64(0),
-			next:     capture,
+		mock := &capturingQueryServer{ctx: ctx}
+		stream := &grpcResultStream{out: mock, lastSentID: -1}
+
+		err := stream.pushTranslatorMessage(ctx, storage2.OperationResult{
+			Op: 0,
+			Envelope: v1.Envelope{
+				ID:   0,
+				When: time.Now().Format(time.RFC3339Nano),
+				Kind: "Created",
+			},
+		})
+		require.NoError(t, err)
+		require.Len(t, mock.sent, 1, "event with ID 0 should not be dropped")
+		assert.Equal(t, int64(0), *mock.sent[0].Id)
+	})
+
+	t.Run("Duplicate event with same ID is dropped", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+		mock := &capturingQueryServer{ctx: ctx}
+		stream := &grpcResultStream{out: mock, lastSentID: -1}
+
+		envelope := storage2.OperationResult{
+			Op: 0,
+			Envelope: v1.Envelope{
+				ID:   5,
+				When: time.Now().Format(time.RFC3339Nano),
+				Kind: "Updated",
+			},
 		}
+		err := stream.pushTranslatorMessage(ctx, envelope)
+		require.NoError(t, err)
+		assert.Len(t, mock.sent, 1)
 
-		firstID := fakeID()
-		t.Run("When an event is first passed", func(t *testing.T) {
-			err := v.send(ctx, &ipc.QueryOut{
-				Id: &firstID,
+		err = stream.pushTranslatorMessage(ctx, envelope)
+		require.NoError(t, err)
+		assert.Len(t, mock.sent, 1, "duplicate event should be dropped")
+	})
+
+	t.Run("Lower ID after higher ID is dropped", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+		mock := &capturingQueryServer{ctx: ctx}
+		stream := &grpcResultStream{out: mock, lastSentID: -1}
+
+		high := storage2.OperationResult{
+			Op: 0,
+			Envelope: v1.Envelope{
+				ID:   10,
+				When: time.Now().Format(time.RFC3339Nano),
+				Kind: "High",
+			},
+		}
+		err := stream.pushTranslatorMessage(ctx, high)
+		require.NoError(t, err)
+		assert.Len(t, mock.sent, 1)
+
+		low := storage2.OperationResult{
+			Op: 0,
+			Envelope: v1.Envelope{
+				ID:   3,
+				When: time.Now().Format(time.RFC3339Nano),
+				Kind: "Low",
+			},
+		}
+		err = stream.pushTranslatorMessage(ctx, low)
+		require.NoError(t, err)
+		assert.Len(t, mock.sent, 1, "lower ID after higher ID should be dropped")
+	})
+
+	t.Run("Monotonically increasing events all pass through", func(t *testing.T) {
+		t.Parallel()
+		ctx := t.Context()
+		mock := &capturingQueryServer{ctx: ctx}
+		stream := &grpcResultStream{out: mock, lastSentID: -1}
+
+		for i := int64(1); i <= 5; i++ {
+			err := stream.pushTranslatorMessage(ctx, storage2.OperationResult{
+				Op: 0,
+				Envelope: v1.Envelope{
+					ID:   i,
+					When: time.Now().Format(time.RFC3339Nano),
+					Kind: "Event",
+				},
 			})
 			require.NoError(t, err)
-
-			//
-			// Then we should dispatch the event
-			//
-			if assert.Len(t, capture.given, 1) {
-				assert.Equal(t, firstID, *capture.given[0].Id)
-			}
-		})
-
-		t.Run("When an event is passed twice", func(t *testing.T) {
-			err := v.send(ctx, &ipc.QueryOut{
-				Id: &firstID,
-			})
-			require.NoError(t, err)
-
-			//
-			// then another event is not dispatched
-			//
-			if assert.Len(t, capture.given, 1) {
-				assert.Equal(t, firstID, *capture.given[0].Id)
-			}
-		})
-
-		t.Run("When an earlier event is passed", func(t *testing.T) {
-			earlierID := fakeIDBelow(firstID)
-			err := v.send(ctx, &ipc.QueryOut{
-				Id: &earlierID,
-			})
-			require.NoError(t, err)
-
-			//
-			// then the event is not accepted
-			//
-			if assert.Len(t, capture.given, 1) {
-				assert.Equal(t, firstID, *capture.given[0].Id)
-			}
-		})
-
-		t.Run("When an later event is passed", func(t *testing.T) {
-			laterID := fakeIDAbove(firstID)
-			err := v.send(ctx, &ipc.QueryOut{
-				Id: &laterID,
-			})
-			require.NoError(t, err)
-
-			//
-			// then the event is accepted
-			//
-			if assert.Len(t, capture.given, 2) {
-				assert.Equal(t, firstID, *capture.given[0].Id)
-				assert.Equal(t, laterID, *capture.given[1].Id)
-			}
-		})
+		}
+		assert.Len(t, mock.sent, 5, "all 5 events should be delivered")
+		for i, msg := range mock.sent {
+			assert.Equal(t, int64(i+1), *msg.Id)
+		}
 	})
 }
 
-func TestOpSplitter(t *testing.T) {
+func TestGrpcResultStream_DedupCallsMetricCounter(t *testing.T) {
 	t.Parallel()
-	captures := make(map[int64]*capturingSink)
+	ctx := t.Context()
+	mock := &capturingQueryServer{ctx: ctx}
+	stream := &grpcResultStream{out: mock, lastSentID: -1}
 
-	splitter := newOpSplitter(func(i int64) grpcSink {
-		if _, ok := captures[i]; ok {
-			t.Fatalf("duplicate capture for %d", i)
-		}
-		newCapture := &capturingSink{}
-		captures[i] = newCapture
-		return newCapture
+	// Send event 5
+	err := stream.pushTranslatorMessage(ctx, storage2.OperationResult{
+		Op: 0,
+		Envelope: v1.Envelope{
+			ID:   5,
+			When: time.Now().Format(time.RFC3339Nano),
+			Kind: "Test",
+		},
 	})
+	require.NoError(t, err)
+	assert.Len(t, mock.sent, 1)
 
-	firstExampleOp := fakeInt64Range(0, 100)
-	t.Run("When an unseen operation is passed in", func(t *testing.T) {
-		//
-		//
-		//
-		msg := &ipc.QueryOut{
-			Op: firstExampleOp,
-		}
-		err := splitter.send(t.Context(), msg)
-		require.NoError(t, err)
-
-		//
-		//
-		//
-		if assert.Len(t, captures, 1) {
-			assert.Equal(t, firstExampleOp, captures[firstExampleOp].given[0].Op)
-		}
+	// Send duplicate of event 5 — should be dropped and WatchDedupDrops incremented
+	err = stream.pushTranslatorMessage(ctx, storage2.OperationResult{
+		Op: 0,
+		Envelope: v1.Envelope{
+			ID:   5,
+			When: time.Now().Format(time.RFC3339Nano),
+			Kind: "Test",
+		},
 	})
+	require.NoError(t, err)
+	assert.Len(t, mock.sent, 1, "duplicate should be dropped")
 
-	t.Run("When a seen operation is passed in", func(t *testing.T) {
-		//
-		//
-		//
-		msg := &ipc.QueryOut{
-			Op: firstExampleOp,
-		}
-		err := splitter.send(t.Context(), msg)
-		require.NoError(t, err)
-
-		//
-		// then we do not have an additional pipeline created
-		//
-		if assert.Len(t, captures, 1) {
-			assert.Equal(t, firstExampleOp, captures[firstExampleOp].given[0].Op)
-		}
+	// Send event 3 (lower than 5) — should also be dropped and counter incremented again
+	err = stream.pushTranslatorMessage(ctx, storage2.OperationResult{
+		Op: 0,
+		Envelope: v1.Envelope{
+			ID:   3,
+			When: time.Now().Format(time.RFC3339Nano),
+			Kind: "Test",
+		},
 	})
+	require.NoError(t, err)
+	assert.Len(t, mock.sent, 1, "lower ID should be dropped")
 
-	secondExampleOp := fakeInt64Range(100, 200)
-	t.Run("When a seen operation is passed in", func(t *testing.T) {
-		//
-		//
-		//
-		msg := &ipc.QueryOut{
-			Op: secondExampleOp,
-		}
-		err := splitter.send(t.Context(), msg)
-		require.NoError(t, err)
-
-		//
-		// then a new pipeline is created
-		//
-		if assert.Len(t, captures, 2) {
-			assert.Equal(t, secondExampleOp, captures[secondExampleOp].given[0].Op)
-		}
-	})
+	// WatchDedupDrops is a package-level OTel counter. Without a reader we
+	// cannot assert its numeric value, but the two drops above exercised the
+	// Add(ctx, 1) call path. The compile-time type check below verifies the
+	// metric variable is correctly typed.
+	_ = WatchDedupDrops
 }

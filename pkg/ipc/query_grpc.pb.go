@@ -630,10 +630,11 @@ var ConsumerPosition_ServiceDesc = grpc.ServiceDesc{
 }
 
 const (
-	ConsumerLock_TryAcquire_FullMethodName = "/ipc.ConsumerLock/TryAcquire"
-	ConsumerLock_Release_FullMethodName    = "/ipc.ConsumerLock/Release"
-	ConsumerLock_KeepAlive_FullMethodName  = "/ipc.ConsumerLock/KeepAlive"
-	ConsumerLock_ListLocks_FullMethodName  = "/ipc.ConsumerLock/ListLocks"
+	ConsumerLock_TryAcquire_FullMethodName  = "/ipc.ConsumerLock/TryAcquire"
+	ConsumerLock_Release_FullMethodName     = "/ipc.ConsumerLock/Release"
+	ConsumerLock_KeepAlive_FullMethodName   = "/ipc.ConsumerLock/KeepAlive"
+	ConsumerLock_ListLocks_FullMethodName   = "/ipc.ConsumerLock/ListLocks"
+	ConsumerLock_WaitForLock_FullMethodName = "/ipc.ConsumerLock/WaitForLock"
 )
 
 // ConsumerLockClient is the client API for ConsumerLock service.
@@ -651,6 +652,8 @@ type ConsumerLockClient interface {
 	KeepAlive(ctx context.Context, opts ...grpc.CallOption) (grpc.BidiStreamingClient[KeepAliveClientMessage, KeepAliveServerMessage], error)
 	// ListLocks returns all active locks for a domain/stream pair.
 	ListLocks(ctx context.Context, in *ListLocksIn, opts ...grpc.CallOption) (*ListLocksOut, error)
+	// WaitForLock blocks until the lock is available, then returns lock details.
+	WaitForLock(ctx context.Context, in *WaitForLockRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LockGranted], error)
 }
 
 type consumerLockClient struct {
@@ -704,6 +707,25 @@ func (c *consumerLockClient) ListLocks(ctx context.Context, in *ListLocksIn, opt
 	return out, nil
 }
 
+func (c *consumerLockClient) WaitForLock(ctx context.Context, in *WaitForLockRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[LockGranted], error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	stream, err := c.cc.NewStream(ctx, &ConsumerLock_ServiceDesc.Streams[1], ConsumerLock_WaitForLock_FullMethodName, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	x := &grpc.GenericClientStream[WaitForLockRequest, LockGranted]{ClientStream: stream}
+	if err := x.ClientStream.SendMsg(in); err != nil {
+		return nil, err
+	}
+	if err := x.ClientStream.CloseSend(); err != nil {
+		return nil, err
+	}
+	return x, nil
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ConsumerLock_WaitForLockClient = grpc.ServerStreamingClient[LockGranted]
+
 // ConsumerLockServer is the server API for ConsumerLock service.
 // All implementations must embed UnimplementedConsumerLockServer
 // for forward compatibility.
@@ -719,6 +741,8 @@ type ConsumerLockServer interface {
 	KeepAlive(grpc.BidiStreamingServer[KeepAliveClientMessage, KeepAliveServerMessage]) error
 	// ListLocks returns all active locks for a domain/stream pair.
 	ListLocks(context.Context, *ListLocksIn) (*ListLocksOut, error)
+	// WaitForLock blocks until the lock is available, then returns lock details.
+	WaitForLock(*WaitForLockRequest, grpc.ServerStreamingServer[LockGranted]) error
 	mustEmbedUnimplementedConsumerLockServer()
 }
 
@@ -740,6 +764,9 @@ func (UnimplementedConsumerLockServer) KeepAlive(grpc.BidiStreamingServer[KeepAl
 }
 func (UnimplementedConsumerLockServer) ListLocks(context.Context, *ListLocksIn) (*ListLocksOut, error) {
 	return nil, status.Error(codes.Unimplemented, "method ListLocks not implemented")
+}
+func (UnimplementedConsumerLockServer) WaitForLock(*WaitForLockRequest, grpc.ServerStreamingServer[LockGranted]) error {
+	return status.Error(codes.Unimplemented, "method WaitForLock not implemented")
 }
 func (UnimplementedConsumerLockServer) mustEmbedUnimplementedConsumerLockServer() {}
 func (UnimplementedConsumerLockServer) testEmbeddedByValue()                      {}
@@ -823,6 +850,17 @@ func _ConsumerLock_ListLocks_Handler(srv interface{}, ctx context.Context, dec f
 	return interceptor(ctx, in, info, handler)
 }
 
+func _ConsumerLock_WaitForLock_Handler(srv interface{}, stream grpc.ServerStream) error {
+	m := new(WaitForLockRequest)
+	if err := stream.RecvMsg(m); err != nil {
+		return err
+	}
+	return srv.(ConsumerLockServer).WaitForLock(m, &grpc.GenericServerStream[WaitForLockRequest, LockGranted]{ServerStream: stream})
+}
+
+// This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
+type ConsumerLock_WaitForLockServer = grpc.ServerStreamingServer[LockGranted]
+
 // ConsumerLock_ServiceDesc is the grpc.ServiceDesc for ConsumerLock service.
 // It's only intended for direct use with grpc.RegisterService,
 // and not to be introspected or modified (even as a copy)
@@ -849,6 +887,11 @@ var ConsumerLock_ServiceDesc = grpc.ServiceDesc{
 			Handler:       _ConsumerLock_KeepAlive_Handler,
 			ServerStreams: true,
 			ClientStreams: true,
+		},
+		{
+			StreamName:    "WaitForLock",
+			Handler:       _ConsumerLock_WaitForLock_Handler,
+			ServerStreams: true,
 		},
 	},
 	Metadata: "pkg/ipc/query.proto",

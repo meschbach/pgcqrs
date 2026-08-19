@@ -5,6 +5,7 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -27,6 +28,7 @@ var no = &falsy
 
 // GrpcAdapter implements Transport using gRPC.
 type GrpcAdapter struct {
+	conn      *grpc.ClientConn
 	commands  ipc.CommandClient
 	queries   ipc.QueryClient
 	positions ipc.ConsumerPositionClient
@@ -65,16 +67,31 @@ func NewGRPCTransport(url string) (*GrpcAdapter, error) {
 	if err != nil {
 		return nil, err
 	}
-	commands := ipc.NewCommandClient(conn)
-	queries := ipc.NewQueryClient(conn)
-	positions := ipc.NewConsumerPositionClient(conn)
-	locks := ipc.NewConsumerLockClient(conn)
 	return &GrpcAdapter{
-		commands,
-		queries,
-		positions,
-		locks,
+		conn:      conn,
+		commands:  ipc.NewCommandClient(conn),
+		queries:   ipc.NewQueryClient(conn),
+		positions: ipc.NewConsumerPositionClient(conn),
+		locks:     ipc.NewConsumerLockClient(conn),
 	}, nil
+}
+
+// NewGrpcAdapter wraps an existing gRPC connection into a GrpcAdapter.
+// This complements NewGRPCTransport which dials internally; this variant accepts
+// a pre-dialed connection so Connect can share one conn for both Wire and Transport.
+func NewGrpcAdapter(conn *grpc.ClientConn) *GrpcAdapter {
+	return &GrpcAdapter{
+		conn:      conn,
+		commands:  ipc.NewCommandClient(conn),
+		queries:   ipc.NewQueryClient(conn),
+		positions: ipc.NewConsumerPositionClient(conn),
+		locks:     ipc.NewConsumerLockClient(conn),
+	}
+}
+
+// ViewConnectivity reports the remote gRPC connection backing this transport.
+func (g *GrpcAdapter) ViewConnectivity() ViewConnectivity {
+	return ViewConnectivity{GRPC: g.conn}
 }
 
 // EnsureStream ensures the given stream exists via gRPC.
@@ -512,6 +529,7 @@ func (g *GrpcAdapter) TryAcquire(ctx context.Context, domain, stream, consumer, 
 	result := &LockResult{
 		Acquired: resp.Acquired,
 		HeldBy:   resp.HeldBy,
+		Position: resp.GetPosition(),
 	}
 	if resp.GuaranteeUntil != nil {
 		result.GuaranteeUntil = resp.GuaranteeUntil.AsTime()
@@ -582,30 +600,14 @@ func (g *GrpcAdapter) ListLocks(ctx context.Context, domain, stream string) ([]L
 }
 
 // HeartbeatWithPosition sends a heartbeat with the consumer's position via gRPC.
-// This is a unary wrapper that opens a KeepAlive stream, sends one heartbeat, and closes.
-func (g *GrpcAdapter) HeartbeatWithPosition(ctx context.Context, domain, stream, consumer, holder string, position int64) error {
-	kaStream, err := g.locks.KeepAlive(ctx)
+// This is a unary wrapper that opens a KeepAlive stream, binds, sends one heartbeat, and closes.
+func (g *GrpcAdapter) HeartbeatWithPosition(ctx context.Context, domain, stream, consumer, holder string, position int64) (retErr error) {
+	ka, err := g.NewKeepAlive(ctx, domain, stream, consumer, holder)
 	if err != nil {
 		return err
 	}
-	err = kaStream.Send(&ipc.KeepAliveClientMessage{
-		Message: &ipc.KeepAliveClientMessage_Heartbeat{
-			Heartbeat: &ipc.KeepAliveHeartbeat{
-				Events:   &ipc.DomainStream{Domain: domain, Stream: stream},
-				Consumer: consumer,
-				Holder:   holder,
-				Position: position,
-			},
-		},
-	})
-	if err != nil {
-		return err
-	}
-	resp, err := kaStream.Recv()
-	if err != nil {
-		return err
-	}
-	return g.handleKeepAliveResponse(resp, consumer, domain, stream, holder)
+	defer func() { retErr = errors.Join(retErr, ka.stream.CloseSend()) }()
+	return ka.Heartbeat(ctx, position)
 }
 
 func (g *GrpcAdapter) handleKeepAliveResponse(resp *ipc.KeepAliveServerMessage, consumer, domain, stream, holder string) error {
@@ -653,19 +655,58 @@ type KeepAlive struct {
 }
 
 // NewKeepAlive opens a bidirectional KeepAlive stream and returns a client-side
-// wrapper for synchronous heartbeat and release operations.
-func (g *GrpcAdapter) NewKeepAlive(ctx context.Context, domain, stream, consumer, holder string) (*KeepAlive, error) {
+// wrapper for synchronous heartbeat and release operations. It sends a bind
+// message to establish the lock context and waits for the server's
+// acknowledgment before returning.
+func (g *GrpcAdapter) NewKeepAlive(ctx context.Context, domain, stream, consumer, holder string) (ka *KeepAlive, retErr error) {
 	s, err := g.locks.KeepAlive(ctx)
 	if err != nil {
 		return nil, err
 	}
-	return &KeepAlive{
+
+	ka = &KeepAlive{
 		stream:   s,
 		domain:   domain,
 		streamN:  stream,
 		consumer: consumer,
 		holder:   holder,
-	}, nil
+	}
+
+	err = s.Send(&ipc.KeepAliveClientMessage{
+		Message: &ipc.KeepAliveClientMessage_Bind{
+			Bind: &ipc.KeepAliveBindRequest{
+				Domain:   domain,
+				Stream:   stream,
+				Consumer: consumer,
+				Holder:   holder,
+			},
+		},
+	})
+	if err != nil {
+		retErr = errors.Join(err, s.CloseSend())
+		return nil, retErr
+	}
+
+	resp, err := s.Recv()
+	if err != nil {
+		retErr = errors.Join(err, s.CloseSend())
+		return nil, retErr
+	}
+	lockStatus := resp.GetLockStatus()
+	if lockStatus == nil {
+		retErr = errors.Join(fmt.Errorf("expected lock status in response to bind"), s.CloseSend())
+		return nil, retErr
+	}
+	if !lockStatus.Locked {
+		closeErr := s.CloseSend()
+		if bindErr := g.handleKeepAliveResponse(resp, consumer, domain, stream, holder); bindErr != nil {
+			retErr = errors.Join(bindErr, closeErr)
+			return nil, retErr
+		}
+		retErr = errors.Join(fmt.Errorf("keepalive bind rejected"), closeErr)
+		return nil, retErr
+	}
+	return ka, nil
 }
 
 // Heartbeat sends a heartbeat with the consumer's current position over the
@@ -777,4 +818,19 @@ func (g *grpcWatchPump) Tick(_ context.Context) (msg *ipc.QueryOut, err error) {
 		}
 	}
 	return msg, err
+}
+
+// OnLockRelease is a no-op for the gRPC transport since lock release
+// notifications are delivered in-band via the KeepAlive and WaitForLock streams.
+// It returns a no-op unsubscribe function.
+func (g *GrpcAdapter) OnLockRelease(_ func(context.Context, LockReleasedEvent) error) func() {
+	return func() {}
+}
+
+// Close closes the underlying gRPC connection.
+func (g *GrpcAdapter) Close() error {
+	if g.conn != nil {
+		return g.conn.Close()
+	}
+	return nil
 }

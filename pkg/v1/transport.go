@@ -6,12 +6,32 @@ import (
 	"time"
 
 	"github.com/meschbach/pgcqrs/pkg/ipc"
+	"google.golang.org/grpc"
 )
 
 // SetPositionResult contains the result of a SetPosition operation.
 type SetPositionResult struct {
 	PreviousEventID *int64
 	CurrentEventID  int64
+}
+
+// ViewConnectivity describes how a Transport exposes view projections. Exactly
+// one of the backends is set: Memory indicates projections are served in-process
+// by the transport; a non-nil GRPC connection points at the remote gRPC
+// services.
+type ViewConnectivity struct {
+	// GRPC is the remote connection backing the ViewProjectionStore and
+	// ViewProjectionConsumer services. Non-nil for remote transports.
+	GRPC *grpc.ClientConn
+	// Memory indicates projections are served in-process by the transport.
+	Memory bool
+}
+
+// ViewFeature is implemented by transports that can back view projections.
+// The accessor only returns v1-level types so the interface can live in pkg/v1
+// without importing downstream projection packages.
+type ViewFeature interface {
+	ViewConnectivity() ViewConnectivity
 }
 
 // Transport defines the interface for different communication mechanisms (e.g. memory, HTTP, gRPC).
@@ -39,6 +59,8 @@ type Transport interface {
 	GetLock(ctx context.Context, domain, stream, consumer string) (*LockState, bool, error)
 	ListLocks(ctx context.Context, domain, stream string) ([]LockState, error)
 	HeartbeatWithPosition(ctx context.Context, domain, stream, consumer, holder string, position int64) error
+	OnLockRelease(fn func(context.Context, LockReleasedEvent) error) func()
+	Close() error
 }
 
 // StreamTransport defines methods for basic stream operations.

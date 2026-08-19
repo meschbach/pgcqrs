@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/go-faker/faker/v4"
+	"github.com/meschbach/go-junk-bucket/testing/faking"
 	v1 "github.com/meschbach/pgcqrs/pkg/v1"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -112,8 +113,9 @@ func TestAfterWithMultipleKinds(t *testing.T) {
 	streamName := faker.Name()
 	stream := system.MustStream(ctx, appName, streamName)
 
-	kind1 := faker.Word()
-	kind2 := faker.Word()
+	kindUniverse := faking.NewUniqueWords()
+	kind1 := kindUniverse.Next()
+	kind2 := kindUniverse.Next()
 
 	// Submit events of both kinds interleaved
 	stream.MustSubmit(ctx, kind1, &afterTestEvent{Value: "a"}) // ID 0

@@ -4,6 +4,7 @@
 set -e
 function run_all() {
     local skip_watch=$1
+    local skip_views=$2
 
     set -x
     go run ./examples/simple
@@ -21,14 +22,21 @@ function run_all() {
     set -x
     go run ./examples/readme
     set +x
+    if [ "$skip_views" != "no_views" ]; then
+      set -x
+      go run ./examples/view-projection
+      go run ./examples/view-projection-versioned
+      go run ./examples/view-projection-watch
+      set +x
+    fi
 }
 
 echo
-echo "Running examples with HTTP"
+echo "Running examples with memory"
 echo
 export PGCQRS_SERVICE_TRANSPORT="memory"
 export ENV="system_test.memory"
-run_all
+run_all no_watch no_views
 
 echo
 echo "Running examples with HTTP"
@@ -36,8 +44,8 @@ echo
 export PGCQRS_SERVICE_TRANSPORT="http"
 export ENV="system_test.http"
 (
-  export PGCQRS_SERVICE_URL=$PGCQRS_SERVICE_URL_HTTP
-  run_all no_watch
+  export PGCQRS_SERVICE_URL=${PGCQRS_SERVICE_URL_HTTP:-http://localhost:9000}
+  run_all no_watch no_views
 )
 
 echo

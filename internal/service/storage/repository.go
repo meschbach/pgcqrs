@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"iter"
 
 	"github.com/jackc/pgtype"
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -26,6 +27,7 @@ func RepositoryWithPool(pg *pgxpool.Pool) *Repository {
 // Operation represents a query operation.
 type Operation interface {
 	append(q *SQLQuery)
+	UpdateAfterID(id int64)
 }
 
 // OperationResult represents the result of a query operation.
@@ -36,11 +38,16 @@ type OperationResult struct {
 	Event    json.RawMessage
 }
 
-// Stream will execute the given operations against the data store once perform is called.
-func (r *Repository) Stream(ctx context.Context, ops []Operation) (onEachResult <-chan OperationResult, perform func(ctx context.Context) (int, error), err error) {
+// Stream returns an iterator over the query results. It builds and executes the
+// SQL query eagerly, then yields rows lazily via the returned iterator. This
+// eliminates goroutine/channel coordination and makes deadlocks impossible.
+func (r *Repository) Stream(ctx context.Context, ops []Operation) iter.Seq2[OperationResult, error] {
 	if len(ops) == 0 {
-		return nil, nil, errors.New("no target operations")
+		return func(yield func(OperationResult, error) bool) {
+			yield(OperationResult{}, errors.New("no target operations"))
+		}
 	}
+
 	query := &SQLQuery{}
 	query.append("SELECT o.id, o.when_occurred, o.op, o.event, o.kind FROM (")
 	first := true
@@ -54,36 +61,37 @@ func (r *Repository) Stream(ctx context.Context, ops []Operation) (onEachResult 
 	}
 	query.append(") as o ORDER BY o.when_occurred ASC")
 
-	//TODO: wish there was a way to wrap PG with otel
 	queryCtx, span := tracer.Start(ctx, "query")
 	span.SetAttributes(attribute.String("dml", query.DML))
 	rows, err := r.pg.Query(queryCtx, query.DML, query.Args...)
-
 	if err != nil {
 		span.RecordError(err)
 		span.SetStatus(codes.Error, "query failed")
 		span.End()
-		return nil, nil, err
+		return func(yield func(OperationResult, error) bool) {
+			yield(OperationResult{}, err)
+		}
 	}
 	span.End()
 
-	sink := make(chan OperationResult)
-	return sink, func(ctx context.Context) (int, error) {
-		defer close(sink)
+	return func(yield func(OperationResult, error) bool) {
+		defer rows.Close()
 		index := 0
 		for rows.Next() {
 			var out OperationResult
 			var when pgtype.Timestamptz
 			if err := rows.Scan(&out.Envelope.ID, &when, &out.Op, &out.Event, &out.Envelope.Kind); err != nil {
-				span := trace.SpanFromContext(ctx)
-				span.SetStatus(codes.Error, "failed to scan")
-				span.RecordError(err, trace.WithAttributes(attribute.Int("row", index)))
-				return index, err
+				scanSpan := trace.SpanFromContext(ctx)
+				scanSpan.SetStatus(codes.Error, "failed to scan")
+				scanSpan.RecordError(err, trace.WithAttributes(attribute.Int("row", index)))
+				yield(OperationResult{}, err)
+				return
 			}
 			out.Envelope.When = v1.FormatEnvelopeWhen(when.Time)
-			sink <- out
+			if !yield(out, nil) {
+				return
+			}
 			index++
 		}
-		return index, nil
-	}, nil
+	}
 }

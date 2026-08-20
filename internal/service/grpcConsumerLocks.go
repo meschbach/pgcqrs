@@ -45,7 +45,7 @@ func (g *grpcConsumerLock) TryAcquire(ctx context.Context, in *ipc.TryAcquireIn)
 
 	// Emit events for expired locks
 	for _, expired := range expiredLocks {
-		g.bus.dispatchOnLockReleased(ctx, expired.Domain, expired.Stream, expired.Consumer, expired.Holder)
+		go g.bus.dispatchOnLockReleased(ctx, expired.Domain, expired.Stream, expired.Consumer, expired.Holder)
 	}
 
 	span.SetAttributes(attribute.Bool("consumer-lock.acquired", result.Acquired))
@@ -76,7 +76,7 @@ func (g *grpcConsumerLock) Release(ctx context.Context, in *ipc.ReleaseIn) (*ipc
 
 	// Emit event for released lock
 	if released != nil {
-		g.bus.dispatchOnLockReleased(ctx, released.Domain, released.Stream, released.Consumer, released.Holder)
+		go g.bus.dispatchOnLockReleased(ctx, released.Domain, released.Stream, released.Consumer, released.Holder)
 	}
 
 	return &ipc.ReleaseOut{Ok: true}, nil
@@ -340,7 +340,7 @@ func (g *grpcConsumerLock) handleReleaseRequest(ctx context.Context, stream grpc
 	}
 	// Emit event for released lock
 	if released != nil {
-		g.bus.dispatchOnLockReleased(ctx, released.Domain, released.Stream, released.Consumer, released.Holder)
+		go g.bus.dispatchOnLockReleased(ctx, released.Domain, released.Stream, released.Consumer, released.Holder)
 	}
 
 	return stream.Send(&ipc.KeepAliveServerMessage{
@@ -624,7 +624,7 @@ func (g *grpcConsumerLock) acquireLock(ctx context.Context, domain, stream, cons
 		return nil, err
 	}
 	for _, expired := range expiredLocks {
-		g.bus.dispatchOnLockReleased(ctx, expired.Domain, expired.Stream, expired.Consumer, expired.Holder)
+		go g.bus.dispatchOnLockReleased(ctx, expired.Domain, expired.Stream, expired.Consumer, expired.Holder)
 	}
 	return result, nil
 }

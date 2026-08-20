@@ -50,7 +50,7 @@ func (g *grpcCommand) Submit(ctx context.Context, in *ipc.SubmitIn) (*ipc.Submit
 	if err != nil {
 		return nil, err
 	}
-	g.bus.dispatchOnEventStored(ctx, in.Events.Domain, in.Events.Stream, id, in.Kind, in.Body)
+	go g.bus.dispatchOnEventStored(ctx, in.Events.Domain, in.Events.Stream, id, in.Kind, in.Body)
 	return &ipc.SubmitOut{
 		Id:    id,
 		State: &ipc.Consistency{After: id},
@@ -93,7 +93,7 @@ func (g *grpcCommand) submitWithinTx(ctx context.Context, tx pgx.Tx, in *ipc.Sub
 		return nil, err
 	}
 
-	g.bus.dispatchOnEventStored(ctx, in.Events.Domain, in.Events.Stream, id, in.Kind, in.Body)
+	go g.bus.dispatchOnEventStored(ctx, in.Events.Domain, in.Events.Stream, id, in.Kind, in.Body)
 	return &ipc.SubmitOut{
 		Id:    id,
 		State: &ipc.Consistency{After: id},

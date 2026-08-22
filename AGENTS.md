@@ -245,19 +245,22 @@ PGCQRS_TEST_TRANSPORT=grpc PGCQRS_TEST_URL=localhost:26001 go test ./systest/...
 
 ### Quality Gates
 
-This project has two quality gates that should be run locally to match CI:
+This project has quality gates that mirror the pre-commit pipeline. Run these for quick changes before committing, then finalize with `pre-commit run --all-files`:
 
-1. **Example drift detection** - verifies examples compile and work with the current codebase
-   ```bash
-   ./dev.sh examples
-   # or directly: ./run-examples.sh
-   ```
+**Quick local checks** (run before commit):
+```bash
+# Run golangci-lint funlen check only (fast)
+golangci-lint run --enable funlen ./...
 
-2. **Transport verification** - runs systest suite with memory, HTTP, and gRPC transports
-   ```bash
-   ./dev.sh integration
-   # or directly: ./integration-tests.sh
-   ```
+# Or run the full linter (matches pre-commit)
+golangci-lint run ./...
+```
+
+**Finalize with pre-commit** (run before pushing):
+```bash
+pre-commit run --all-files
+```
+This runs all hooks including `golangci-lint` (full repo scan), `golangci-lint-config-verify`, and other pre-commit checks.
 
 Both are automatically run via `./dev.sh up` when the system tests stage executes.
 

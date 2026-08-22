@@ -41,23 +41,21 @@ func (r *recordingIndexer) getSeen() []int64 {
 	return result
 }
 
-func RunSyncTest(t *testing.T, name string, realTest func(t *testing.T)) {
-	t.Run(name, func(t *testing.T) {
-		synctest.Test(t, realTest)
-	})
+// newRecordingIndexer creates a fresh indexer for each test
+func newRecordingIndexer(stream v1.StreamTransport) *recordingIndexer {
+	return &recordingIndexer{stream: stream}
 }
 
-// TestPump_IdleHeartbeat consolidates the four idle heartbeat tests into a single
-// test function using testing/synctest for virtualized time bubbles.
-// Each of the four scenarios is implemented as a distinct block within the test,
-// sharing the synctest bubble for deterministic time advancement.
-func TestPump_IdleHeartbeat(t *testing.T) {
-	t.Parallel()
+// submitInitialEvent submits the first event to the stream.
+func submitInitialEvent(t *testing.T, stream *v1.Stream) {
+	_, err := stream.Submit(t.Context(), "TestEvent", map[string]string{"data": "initial"})
+	require.NoError(t, err)
+}
 
-	// --- Scenario 1: heartbeat keeps lock alive ---
-	// Original: TestPump_IdleHeartbeat
-	// TTL=10s, wait 10s idle, verify pump still Watching + lock held.
-	RunSyncTest(t, "Heartbeat Keeps Lock Alive", func(t *testing.T) {
+type heartbeatTestFunc func(t *testing.T, ctx context.Context, transport v1.Transport, stream *v1.Stream, pump *Pump[*v1.MemoryLock])
+
+func runTest(t *testing.T, perform heartbeatTestFunc) {
+	synctest.Test(t, func(t *testing.T) {
 		transport := v1.NewMemoryTransport()
 		t.Cleanup(func() {
 			require.NoError(t, transport.Close())
@@ -69,30 +67,34 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 		stream, err := sys.Stream(ctx, "domain", "stream")
 		require.NoError(t, err)
 
-		// Submit one event
-		_, err = stream.Submit(ctx, "TestEvent", map[string]string{"data": "initial"})
-		require.NoError(t, err)
+		submitInitialEvent(t, stream)
 
-		// Create pump with short TTL for testing
 		wire := v1.NewMemoryWire(transport)
-		indexer := &recordingIndexer{stream: stream}
-		pump := NewPump(wire, indexer, "test-holder", WithTTL(10*time.Second))
+		indexer := newRecordingIndexer(stream)
+		pump := NewPump[*v1.MemoryLock](wire, indexer, "test-holder", WithTTL(10*time.Second))
 
-		// Start pump in background
+		perform(t, ctx, transport, stream, pump)
+	})
+}
+
+// TestPump_IdleHeartbeat_HeartbeatKeepsLockAlive verifies that the heartbeat
+// keeps the lock alive when the pump is idle for the full TTL period.
+func TestPump_IdleHeartbeat_HeartbeatKeepsLockAlive(t *testing.T) {
+	t.Parallel()
+	runTest(t, func(t *testing.T, ctx context.Context, transport v1.Transport, _ *v1.Stream, pump *Pump[*v1.MemoryLock]) {
 		pumpCtx, pumpCancel := context.WithCancel(ctx)
-		defer pumpCancel()
+		t.Cleanup(pumpCancel)
 
 		pumpDone := make(chan error, 1)
 		go func() {
 			pumpDone <- pump.RunWithDomainStream(pumpCtx, "domain", "stream")
 		}()
 
-		// Wait for pump to reach Watching state
 		require.Eventually(t, func() bool {
 			return pump.State() == PumpStateWatching
 		}, 2*time.Second, 50*time.Millisecond)
 
-		// Wait for idle period (longer than heartbeat interval of 9s = 10s * 0.9)
+		// Wait for idle period (longer than heartbeat interval)
 		time.Sleep(10 * time.Second)
 
 		// Verify pump is still in Watching state (not LockLost or Failed)
@@ -104,62 +106,42 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 		assert.True(t, found)
 		assert.NotNil(t, lock)
 
-		// Cleanup
 		pumpCancel()
 		<-pumpDone
 	})
+}
 
-	// --- Scenario 2: lock stolen then re-acquired ---
-	// Original: TestPump_IdleLockStolen
-	// TTL=7s, wait idle, externally release lock, verify LockLost→Acquiring→Watching cycle.
-	RunSyncTest(t, "lock stolen then re-acquired", func(t *testing.T) {
-		transport := v1.NewMemoryTransport()
-		t.Cleanup(func() {
-			require.NoError(t, transport.Close())
-		})
-
-		sys := v1.NewSystem(transport)
-		ctx := t.Context()
-
-		stream, err := sys.Stream(ctx, "domain", "stream")
-		require.NoError(t, err)
-
-		// Submit one event
-		_, err = stream.Submit(ctx, "TestEvent", map[string]string{"data": "initial"})
-		require.NoError(t, err)
-
-		// Create pump with short TTL for testing
-		wire := v1.NewMemoryWire(transport)
-		indexer := &recordingIndexer{stream: stream}
-		pump := NewPump(wire, indexer, "test-holder", WithTTL(7*time.Second))
-
+// TestPump_IdleHeartbeat_LockStolenThenReAcquired verifies that when the lock
+// is externally released, the pump detects the loss, re-acquires, and returns
+// to Watching state.
+func TestPump_IdleHeartbeat_LockStolenThenReAcquired(t *testing.T) {
+	t.Parallel()
+	runTest(t, func(t *testing.T, ctx context.Context, transport v1.Transport, stream *v1.Stream, pump *Pump[*v1.MemoryLock]) {
 		// Track state transitions
 		var stateTransitions []PumpState
 		unsub := pump.OnStateChange(func(_ context.Context, evt PumpStateEvent) error {
 			stateTransitions = append(stateTransitions, evt.State)
 			return nil
 		})
-		defer unsub()
+		t.Cleanup(unsub)
 
-		// Start pump in background
 		pumpCtx, pumpCancel := context.WithCancel(ctx)
-		defer pumpCancel()
+		t.Cleanup(pumpCancel)
 
 		pumpDone := make(chan error, 1)
 		go func() {
 			pumpDone <- pump.RunWithDomainStream(pumpCtx, "domain", "stream")
 		}()
 
-		// Wait for pump to reach Watching state
 		require.Eventually(t, func() bool {
 			return pump.State() == PumpStateWatching
 		}, 2*time.Second, 50*time.Millisecond)
 
-		// Wait for idle period (longer than heartbeat interval of 6.3s = 7s * 0.9)
+		// Wait for idle period
 		time.Sleep(7 * time.Second)
 
 		// Externally release the lock (simulates theft)
-		err = transport.Release(ctx, "domain", "stream", "test-holder", "test-holder")
+		err := transport.Release(ctx, "domain", "stream", "test-holder", "test-holder")
 		require.NoError(t, err)
 
 		// Submit another event to trigger heartbeat
@@ -168,7 +150,6 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 
 		// Wait for pump to detect lock loss and re-acquire
 		require.Eventually(t, func() bool {
-			// Check if we've seen LockLost and then Acquiring
 			hasLockLost := false
 			hasAcquiring := false
 			for _, state := range stateTransitions {
@@ -187,36 +168,17 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 			return pump.State() == PumpStateWatching
 		}, 3*time.Second, 100*time.Millisecond)
 
-		// Cleanup
 		pumpCancel()
 		<-pumpDone
 	})
+}
 
-	// --- Scenario 3: idle then event processed ---
-	// Original: TestPump_IdleThenEvent
-	// TTL=10s, wait idle, submit second event, verify position advances + still Watching.
-	RunSyncTest(t, "idle then event processed", func(t *testing.T) {
-		transport := v1.NewMemoryTransport()
-		t.Cleanup(func() {
-			require.NoError(t, transport.Close())
-		})
-
-		sys := v1.NewSystem(transport)
-		ctx := t.Context()
-
-		stream, err := sys.Stream(ctx, "domain", "stream")
-		require.NoError(t, err)
-
-		// Submit first event
-		_, err = stream.Submit(ctx, "TestEvent", map[string]string{"data": "event1"})
-		require.NoError(t, err)
-
-		// Create pump with short TTL for testing
-		wire := v1.NewMemoryWire(transport)
-		indexer := &recordingIndexer{stream: stream}
-		pump := NewPump(wire, indexer, "test-holder", WithTTL(10*time.Second))
-
-		// Start pump in background
+// TestPump_IdleHeartbeat_IdleThenEventProcessed verifies that after an idle
+// period, submitting a new event advances the position and the pump remains
+// in Watching state.
+func TestPump_IdleHeartbeat_IdleThenEventProcessed(t *testing.T) {
+	t.Parallel()
+	runTest(t, func(t *testing.T, ctx context.Context, transport v1.Transport, stream *v1.Stream, pump *Pump[*v1.MemoryLock]) {
 		pumpCtx, pumpCancel := context.WithCancel(ctx)
 		defer pumpCancel()
 
@@ -225,7 +187,6 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 			pumpDone <- pump.RunWithDomainStream(pumpCtx, "domain", "stream")
 		}()
 
-		// Wait for pump to reach Watching state
 		require.Eventually(t, func() bool {
 			return pump.State() == PumpStateWatching
 		}, 2*time.Second, 50*time.Millisecond)
@@ -256,37 +217,17 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 		// Verify pump is still in Watching state
 		assert.Equal(t, PumpStateWatching, pump.State())
 
-		// Cleanup
 		pumpCancel()
 		<-pumpDone
 	})
+}
 
-	// --- Scenario 4: proactive heartbeat at TTL*0.9 ---
-	// Original: TestPump_HeartbeatIntervalFromServer
-	// TTL=20s, wait 17s, verify still Watching + lock held (heartbeat interval = 18s, watch timeout = 16.2s).
-	RunSyncTest(t, "proactive heartbeat at TTL*0.9", func(t *testing.T) {
-		transport := v1.NewMemoryTransport()
-		t.Cleanup(func() {
-			require.NoError(t, transport.Close())
-		})
-
-		sys := v1.NewSystem(transport)
-		ctx := t.Context()
-
-		stream, err := sys.Stream(ctx, "domain", "stream")
-		require.NoError(t, err)
-
-		// Submit one event
-		_, err = stream.Submit(ctx, "TestEvent", map[string]string{"data": "initial"})
-		require.NoError(t, err)
-
-		// Create pump with specific TTL
-		ttl := 20 * time.Second
-		wire := v1.NewMemoryWire(transport)
-		indexer := &recordingIndexer{stream: stream}
-		pump := NewPump(wire, indexer, "test-holder", WithTTL(ttl))
-
-		// Start pump in background
+// TestPump_IdleHeartbeat_ProactiveHeartbeatAtTTL09 verifies that a proactive
+// heartbeat at TTL*0.9 keeps the lock alive when waiting slightly longer than
+// the proactive interval.
+func TestPump_IdleHeartbeat_ProactiveHeartbeatAtTTL09(t *testing.T) {
+	t.Parallel()
+	runTest(t, func(t *testing.T, ctx context.Context, transport v1.Transport, _ *v1.Stream, pump *Pump[*v1.MemoryLock]) {
 		pumpCtx, pumpCancel := context.WithCancel(ctx)
 		defer pumpCancel()
 
@@ -295,7 +236,6 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 			pumpDone <- pump.RunWithDomainStream(pumpCtx, "domain", "stream")
 		}()
 
-		// Wait for pump to reach Watching state
 		require.Eventually(t, func() bool {
 			return pump.State() == PumpStateWatching
 		}, 2*time.Second, 50*time.Millisecond)
@@ -316,7 +256,6 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 		assert.True(t, found)
 		assert.NotNil(t, lock)
 
-		// Cleanup
 		pumpCancel()
 		<-pumpDone
 	})

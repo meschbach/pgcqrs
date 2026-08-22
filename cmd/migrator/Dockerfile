@@ -1,4 +1,4 @@
-FROM --platform=$BUILDPLATFORM golang:1.25-alpine AS data
+FROM --platform=$BUILDPLATFORM golang:1.27-alpine AS data
 RUN apk update && apk add ca-certificates && apk add tzdata
 ENV USER=appuser
 ENV UID=10001

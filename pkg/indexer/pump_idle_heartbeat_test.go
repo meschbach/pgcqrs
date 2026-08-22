@@ -93,7 +93,7 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 		}, 2*time.Second, 50*time.Millisecond)
 
 		// Wait for idle period (longer than heartbeat interval of 9s = 10s * 0.9)
-		synctest.Sleep(10 * time.Second)
+		time.Sleep(10 * time.Second)
 
 		// Verify pump is still in Watching state (not LockLost or Failed)
 		assert.Equal(t, PumpStateWatching, pump.State())
@@ -156,7 +156,7 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 		}, 2*time.Second, 50*time.Millisecond)
 
 		// Wait for idle period (longer than heartbeat interval of 6.3s = 7s * 0.9)
-		synctest.Sleep(7 * time.Second)
+		time.Sleep(7 * time.Second)
 
 		// Externally release the lock (simulates theft)
 		err = transport.Release(ctx, "domain", "stream", "test-holder", "test-holder")
@@ -235,7 +235,7 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 		require.NoError(t, err)
 
 		// Wait for idle period (longer than heartbeat interval of 9s = 10s * 0.9)
-		synctest.Sleep(10 * time.Second)
+		time.Sleep(10 * time.Second)
 
 		// Submit second event
 		_, err = stream.Submit(ctx, "TestEvent", map[string]string{"data": "event2"})
@@ -305,7 +305,7 @@ func TestPump_IdleHeartbeat(t *testing.T) {
 		// So proactive heartbeat should happen around 16.2s
 
 		// Wait for 17 seconds (should trigger proactive heartbeat)
-		synctest.Sleep(17 * time.Second)
+		time.Sleep(17 * time.Second)
 
 		// Verify pump is still in Watching state
 		assert.Equal(t, PumpStateWatching, pump.State())

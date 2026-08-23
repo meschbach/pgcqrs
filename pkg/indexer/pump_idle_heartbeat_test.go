@@ -118,9 +118,12 @@ func TestPump_IdleHeartbeat_LockStolenThenReAcquired(t *testing.T) {
 	t.Parallel()
 	runTest(t, func(t *testing.T, ctx context.Context, transport v1.Transport, stream *v1.Stream, pump *Pump[*v1.MemoryLock]) {
 		// Track state transitions
+		var mu sync.Mutex
 		var stateTransitions []PumpState
 		unsub := pump.OnStateChange(func(_ context.Context, evt PumpStateEvent) error {
+			mu.Lock()
 			stateTransitions = append(stateTransitions, evt.State)
+			mu.Unlock()
 			return nil
 		})
 		t.Cleanup(unsub)
@@ -150,6 +153,8 @@ func TestPump_IdleHeartbeat_LockStolenThenReAcquired(t *testing.T) {
 
 		// Wait for pump to detect lock loss and re-acquire
 		require.Eventually(t, func() bool {
+			mu.Lock()
+			defer mu.Unlock()
 			hasLockLost := false
 			hasAcquiring := false
 			for _, state := range stateTransitions {

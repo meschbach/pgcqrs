@@ -8,11 +8,13 @@ SERVER_LOG="/tmp/pgcqrs-server.log"
 
 dump_server_goroutines() {
     local pid=$1
-    echo "=== Dumping server goroutines (PID $pid) ==="
+    local dump_file="/tmp/pgcqrs-goroutines-$pid.txt"
+    echo "=== Dumping server goroutines (PID $pid) to $dump_file ==="
     kill -3 "$pid" 2>/dev/null || true
     sleep 0.5
     if [ -f "$SERVER_LOG" ]; then
-        cat "$SERVER_LOG"
+        cp "$SERVER_LOG" "$dump_file"
+        cat "$dump_file"
     fi
     echo "=== End server goroutine dump ==="
 }
@@ -48,19 +50,38 @@ echo "=== Memory transport tests ==="
 export PGCQRS_TEST_TRANSPORT="memory"
 export PGCQRS_TEST_URL="$HTTP_URL"
 export PGCQRS_TEST_APP_BASE="systest-"
-go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/...
+TEST_OUTPUT="/tmp/pgcqrs-test-memory.out"
+go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/... >"$TEST_OUTPUT" 2>&1
+TEST_EXIT=$?
+if [ $TEST_EXIT -ne 0 ]; then
+    echo "=== MEMORY TRANSPORT FAILED ==="
+    cat "$TEST_OUTPUT"
+    exit $TEST_EXIT
+fi
+echo "=== Memory transport tests PASSED ==="
 
 echo "=== HTTP transport tests ==="
 export PGCQRS_TEST_URL="$HTTP_URL"
 export PGCQRS_TEST_APP_BASE="systest-"
 unset PGCQRS_TEST_TRANSPORT
-go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/...
+TEST_OUTPUT="/tmp/pgcqrs-test-http.out"
+go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/... >"$TEST_OUTPUT" 2>&1
+TEST_EXIT=$?
+if [ $TEST_EXIT -ne 0 ]; then
+    echo "=== HTTP TRANSPORT FAILED ==="
+    cat "$TEST_OUTPUT"
+    exit $TEST_EXIT
+fi
+echo "=== HTTP transport tests PASSED ==="
 
 echo "=== gRPC transport tests ==="
 export PGCQRS_TEST_TRANSPORT="grpc"
 export PGCQRS_TEST_URL="$GRPC_URL"
 export PGCQRS_TEST_APP_BASE="systest-"
-if ! go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/...; then
+TEST_OUTPUT="/tmp/pgcqrs-test-grpc.out"
+if ! go test -count=$INTEGRATION_RUN_COUNT $INTEGRATION_RUN_OPTS --timeout 5s ./systest/... >"$TEST_OUTPUT" 2>&1; then
     dump_server_goroutines "$SERVER_PID"
+    cat "$TEST_OUTPUT"
     exit 1
 fi
+echo "=== gRPC transport tests PASSED ==="

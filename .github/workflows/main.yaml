@@ -36,6 +36,19 @@ jobs:
           sleep 5
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./migrator primary
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./integration-tests.sh
+      - name: Upload goroutine dump on failure
+        if: failure()
+        run: |
+          ls -la /tmp/pgcqrs-goroutines-*.txt 2>/dev/null && echo "Dump found" || echo "No dump file"
+          # The dump is at /tmp/pgcqrs-goroutines-$SERVER_PID.txt but SERVER_PID isn't exported
+          # Let's find any dump files
+          find /tmp -name "pgcqrs-goroutines-*.txt" -type f 2>/dev/null | head -5
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: goroutine-dump-${{ matrix.go-version }}
+          path: /tmp/pgcqrs-goroutines-*.txt
+          retention-days: 30
   publish_images:
     runs-on: ubuntu-latest
     needs: [tests]

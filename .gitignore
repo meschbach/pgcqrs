@@ -1,6 +1,7 @@
 /migrator
 /service
 /secrets
+/run/
 /.idea
 /pgcqrs
 build/

@@ -92,7 +92,7 @@
 
 - [x] 10.1 Implement `Connect(ctx, address, proj)`: build GrpcWire from gRPC conn, build Transport from same conn, EnsureStream, build *v1.Stream, build RemoteStore, Notifier, ViewsIndexer (with stream), Pump; start Pump in goroutine
 - [x] 10.2 Implement `ConnectMemory(ctx, transport, proj)`: build MemoryWire from transport, EnsureStream, build *v1.Stream, build MemoryStore, Notifier, ViewsIndexer (with stream), Pump; start Pump in goroutine
-- [ ] 10.2a Rework entry point to `With(ctx, sys *v1.System, proj, ...ClientOption)`: extract the system's transport, dispatch via `v1.ViewFeature` connectivity to `newGRPCClient`/`newMemoryClient` sharing a `newClient` scaffold; return `ProjectionClient`. Remove `Connect`, `ConnectMemory`, `ConnectFromConfig`; rename `ConnectOption` to `ClientOption`. Connection lifecycle moves to `*v1.System` (`System.Close()`).
+- [x] 10.2a Rework entry point to `With(ctx, sys *v1.System, proj, ...ClientOption)`: extract the system's transport, dispatch via `v1.ViewFeature` connectivity to `newGRPCClient`/`newMemoryClient` sharing a `newClient` scaffold; return `ProjectionClient`. Remove `Connect`, `ConnectMemory`, `ConnectFromConfig`; rename `ConnectOption` to `ClientOption`. Connection lifecycle moves to `*v1.System` (`System.Close()`).
 - [x] 10.3 Implement `Client.Get(ctx, kind, key, opts)`: call ViewProjectionConsumer gRPC GetEntity
 - [x] 10.4 Implement `Client.Version()`: call ViewProjectionConsumer gRPC Version
 - [x] 10.5 Implement `Client.OnChange(fn)`: subscribe to local notifier (or ViewProjectionConsumer WatchChanges)

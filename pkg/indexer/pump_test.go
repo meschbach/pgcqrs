@@ -35,6 +35,10 @@ func TestPumpAcquiresLockAndProcessesEvents(t *testing.T) {
 		return pump.State() == PumpStateWatching
 	}, 2*time.Second, 50*time.Millisecond)
 
+	require.Eventually(t, func() bool {
+		return len(indexer.getSeen()) == 3
+	}, 2*time.Second, 50*time.Millisecond, "all 3 events should be processed")
+
 	cancel()
 	<-done
 

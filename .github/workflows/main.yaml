@@ -36,6 +36,14 @@ jobs:
           sleep 5
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./migrator primary
           CFG_PRIMARY=$PWD/deploy/integration-tests/primary.json ./integration-tests.sh
+      - name: Upload integration test diagnostics
+        if: failure() || cancelled()
+        uses: actions/upload-artifact@v7
+        with:
+          name: integration-test-diagnostics-${{ matrix.go-version }}
+          path: run/test-diagnostics/
+          if-no-files-found: warn
+          retention-days: 30
   publish_images:
     runs-on: ubuntu-latest
     needs: [tests]

@@ -27,6 +27,9 @@ golangci-lint run ./...
 ./integration-tests.sh
 ```
 
+> Diagnostics from integration runs land in `run/test-diagnostics/<run-id>/`; see
+> `docs/operations.md` for the file inventory and CI artifact behavior.
+
 **Note**: To verify fixes work systemically (as CI does), run `./dev.sh up`. This runs the full test suite including unit tests, integration tests with a real PostgreSQL database, and system tests across all transports (memory, HTTP, gRPC).
 
 ### Building
@@ -67,7 +70,10 @@ The `dev.sh` script provides fine-grained control over the development workflow:
 
 **Typical workflow**: Make code changes → `./dev.sh services` → `./dev.sh examples` or `./dev.sh integration` as needed.
 
-Alternatively, use `docker-up.sh` for quicker setup on ports 9000/9001.
+Alternatively, use `docker-up.sh` for quicker setup on ports 26000 (HTTP) and 26001 (gRPC).
+
+> Service health endpoints (`/ops/liveness`, `/ops/readiness`) and integration-test
+> diagnostics (`run/test-diagnostics/`) are documented in `docs/operations.md`.
 
 ### Local Development Experience (DevXP)
 
@@ -245,19 +251,22 @@ PGCQRS_TEST_TRANSPORT=grpc PGCQRS_TEST_URL=localhost:26001 go test ./systest/...
 
 ### Quality Gates
 
-This project has two quality gates that should be run locally to match CI:
+This project has quality gates that mirror the pre-commit pipeline. Run these for quick changes before committing, then finalize with `pre-commit run --all-files`:
 
-1. **Example drift detection** - verifies examples compile and work with the current codebase
-   ```bash
-   ./dev.sh examples
-   # or directly: ./run-examples.sh
-   ```
+**Quick local checks** (run before commit):
+```bash
+# Run golangci-lint funlen check only (fast)
+golangci-lint run --enable funlen ./...
 
-2. **Transport verification** - runs systest suite with memory, HTTP, and gRPC transports
-   ```bash
-   ./dev.sh integration
-   # or directly: ./integration-tests.sh
-   ```
+# Or run the full linter (matches pre-commit)
+golangci-lint run ./...
+```
+
+**Finalize with pre-commit** (run before pushing):
+```bash
+pre-commit run --all-files
+```
+This runs all hooks including `golangci-lint` (full repo scan), `golangci-lint-config-verify`, and other pre-commit checks.
 
 Both are automatically run via `./dev.sh up` when the system tests stage executes.
 

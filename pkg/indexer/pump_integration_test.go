@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -42,6 +43,10 @@ func TestPump_Deduplication(t *testing.T) {
 	require.Eventually(t, func() bool {
 		return pump.State() == PumpStateWatching
 	}, 2*time.Second, 50*time.Millisecond)
+
+	require.Eventually(t, func() bool {
+		return len(indexer.getSeen()) == 3
+	}, 2*time.Second, 50*time.Millisecond, "all 3 events should be processed exactly once")
 
 	cancel()
 	<-done
@@ -272,11 +277,16 @@ func TestPump_HeartbeatConflictUpdatesPosition(t *testing.T) {
 // heartbeatFailingLock wraps a MemoryLock and can be configured to fail heartbeats.
 type heartbeatFailingLock struct {
 	*v1.MemoryLock
-	failHeartbeat bool
+	wire *heartbeatFailingWire
+}
+
+// heartbeatFailingLockHeartbeat checks whether heartbeats should fail for this lock.
+func (l *heartbeatFailingLock) shouldFailHeartbeat() bool {
+	return l.wire.fail.Load()
 }
 
 func (l *heartbeatFailingLock) Heartbeat(ctx context.Context, position int64) error {
-	if l.failHeartbeat {
+	if l.shouldFailHeartbeat() {
 		return &v1.LockNotHeldError{Consumer: "consumer", Holder: "holder", Domain: "domain", Stream: "stream"}
 	}
 	return l.MemoryLock.Heartbeat(ctx, position)
@@ -285,7 +295,7 @@ func (l *heartbeatFailingLock) Heartbeat(ctx context.Context, position int64) er
 // heartbeatFailingWire wraps a MemoryWire and returns locks that can fail heartbeats.
 type heartbeatFailingWire struct {
 	*v1.MemoryWire
-	locks []*heartbeatFailingLock
+	fail atomic.Bool
 }
 
 func (w *heartbeatFailingWire) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (Lock, int64, time.Duration, error) {
@@ -293,15 +303,12 @@ func (w *heartbeatFailingWire) WaitForLock(ctx context.Context, domain, stream, 
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	fl := &heartbeatFailingLock{MemoryLock: lock}
-	w.locks = append(w.locks, fl)
+	fl := &heartbeatFailingLock{MemoryLock: lock, wire: w}
 	return fl, pos, interval, nil
 }
 
 func (w *heartbeatFailingWire) setFailHeartbeat(fail bool) {
-	for _, l := range w.locks {
-		l.failHeartbeat = fail
-	}
+	w.fail.Store(fail)
 }
 
 // TestPump_HeartbeatFailureRecovery verifies that when heartbeat RPCs fail,

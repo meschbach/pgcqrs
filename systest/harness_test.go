@@ -2,6 +2,7 @@ package systest
 
 import (
 	"context"
+	"errors"
 	"os"
 	"testing"
 
@@ -79,6 +80,19 @@ func skipUnlessGRPC(t *testing.T) {
 	if os.Getenv("PGCQRS_TEST_TRANSPORT") != "grpc" {
 		t.Skip("Skipping gRPC integration test - PGCQRS_TEST_TRANSPORT not set to grpc")
 	}
+}
+
+func (h *harness) requireLocks(t *testing.T) v1.LockFeature {
+	t.Helper()
+	locks, err := h.system.Locks()
+	if err != nil {
+		var lns *v1.LocksNotSupported
+		if errors.As(err, &lns) {
+			t.Skip("transport does not support consumer locks")
+		}
+		require.NoError(t, err)
+	}
+	return locks
 }
 
 type matchedPair[T any] struct {

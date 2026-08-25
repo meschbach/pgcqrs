@@ -1112,6 +1112,62 @@ func (m *memory) OnLockRelease(fn func(context.Context, LockReleasedEvent) error
 	}
 }
 
+// WaitForLock blocks until the lock is available, then acquires it and returns a LockLease.
+// Uses the register-then-recheck pattern: subscribe to release notifications before
+// the first acquire attempt, then recheck after each notification to avoid missing
+// releases that fire between a failed acquire and subscription.
+func (m *memory) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (LockLease, int64, time.Duration, error) {
+	ch, unsub := m.subscribeToRelease(domain, stream, consumer)
+	defer unsub()
+
+	for {
+		lock, position, acquired, err := m.tryAcquireWithLease(ctx, domain, stream, consumer, holder, ttl)
+		if err != nil {
+			return nil, 0, 0, err
+		}
+		if acquired {
+			heartbeatInterval := time.Duration(float64(ttl) * DefaultGuaranteeFraction)
+			return lock, position, heartbeatInterval, nil
+		}
+		select {
+		case <-ctx.Done():
+			return nil, 0, 0, ctx.Err()
+		case <-ch:
+		}
+	}
+}
+
+func (m *memory) tryAcquireWithLease(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (lease LockLease, position int64, acquired bool, err error) {
+	result, err := m.TryAcquire(ctx, domain, stream, consumer, holder, ttl)
+	if err != nil {
+		return nil, 0, false, err
+	}
+	if !result.Acquired {
+		return nil, 0, false, nil
+	}
+	return &MemoryLock{
+		transport: m,
+		domain:    domain,
+		stream:    stream,
+		consumer:  consumer,
+		holder:    holder,
+	}, result.Position, true, nil
+}
+
+func (m *memory) subscribeToRelease(domain, stream, consumer string) (releaseCh chan struct{}, unsub func()) {
+	releaseCh = make(chan struct{}, 1)
+	unsub = m.OnLockRelease(func(_ context.Context, evt LockReleasedEvent) error {
+		if evt.Domain == domain && evt.Stream == stream && evt.Consumer == consumer {
+			select {
+			case releaseCh <- struct{}{}:
+			default:
+			}
+		}
+		return nil
+	})
+	return releaseCh, unsub
+}
+
 func (m *memory) Close() error {
 	close(m.stopCh)
 	return nil

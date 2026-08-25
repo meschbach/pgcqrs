@@ -1,0 +1,14 @@
+title: Pump Resilience
+description: Harden consumer-locks client implementation with state machine, notification-based acquisition, and position dedup
+status: proposed
+schema: spec-driven
+artifacts:
+  proposal:
+    status: done
+    updated: "2026-07-30"
+  design:
+    status: done
+    updated: "2026-07-30"
+  tasks:
+    status: done
+    updated: "2026-07-30"

@@ -2,6 +2,7 @@ package v1
 
 import (
 	"context"
+	"fmt"
 
 	"github.com/meschbach/pgcqrs/internal/junk"
 )
@@ -76,4 +77,14 @@ func NewSystem(storage Transport) *System {
 // Close releases any resources owned by the transport backing this System.
 func (s *System) Close() error {
 	return s.Transport.Close()
+}
+
+// Locks returns the LockFeature for this system's transport, or LocksNotSupported
+// if the transport does not support consumer locks.
+func (s *System) Locks() (LockFeature, error) {
+	lf, ok := s.Transport.(LockFeature)
+	if !ok {
+		return nil, &LocksNotSupported{Transport: fmt.Sprintf("%T", s.Transport)}
+	}
+	return lf, nil
 }

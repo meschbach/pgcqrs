@@ -827,6 +827,36 @@ func (g *GrpcAdapter) OnLockRelease(_ func(context.Context, LockReleasedEvent) e
 	return func() {}
 }
 
+// WaitForLock calls the WaitForLock RPC and returns a LockLease, position, heartbeat interval, and any error.
+func (g *GrpcAdapter) WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (LockLease, int64, time.Duration, error) {
+	req := &ipc.WaitForLockRequest{
+		Events: &ipc.DomainStream{
+			Domain: domain,
+			Stream: stream,
+		},
+		Consumer:   consumer,
+		Holder:     holder,
+		TtlSeconds: int32(ttl.Seconds()),
+	}
+	grpcStream, err := g.locks.WaitForLock(ctx, req)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	resp, err := grpcStream.Recv()
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	keepAlive, err := g.NewKeepAlive(ctx, domain, stream, consumer, holder)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	heartbeatInterval := time.Duration(resp.HeartbeatIntervalMs) * time.Millisecond
+	if heartbeatInterval == 0 {
+		heartbeatInterval = time.Duration(float64(ttl) * DefaultGuaranteeFraction)
+	}
+	return keepAlive, resp.Position, heartbeatInterval, nil
+}
+
 // Close closes the underlying gRPC connection.
 func (g *GrpcAdapter) Close() error {
 	if g.conn != nil {

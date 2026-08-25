@@ -1,6 +1,7 @@
 package v1
 
 import (
+	"context"
 	"fmt"
 	"time"
 )
@@ -139,3 +140,31 @@ const DefaultLockTTL = 30 * time.Second
 
 // DefaultGuaranteeFraction is the fraction of TTL that is the guarantee period (90%).
 const DefaultGuaranteeFraction = 0.9
+
+// LockLease represents an active, time-bounded hold on a consumer lock.
+// It provides methods to maintain the lock via heartbeat and release it.
+type LockLease interface {
+	Heartbeat(ctx context.Context, position int64) error
+	Release(ctx context.Context) error
+}
+
+// LocksNotSupported is returned when a transport does not support consumer locks.
+type LocksNotSupported struct {
+	Transport string
+}
+
+func (e *LocksNotSupported) Error() string {
+	return fmt.Sprintf("consumer locks not supported by transport %q", e.Transport)
+}
+
+// LockFeature defines the full set of operations for working with consumer locks.
+// Transports that support consumer locks implement this interface.
+type LockFeature interface {
+	TryAcquire(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (*LockResult, error)
+	Release(ctx context.Context, domain, stream, consumer, holder string) error
+	GetLock(ctx context.Context, domain, stream, consumer string) (*LockState, bool, error)
+	ListLocks(ctx context.Context, domain, stream string) ([]LockState, error)
+	HeartbeatWithPosition(ctx context.Context, domain, stream, consumer, holder string, position int64) error
+	OnLockRelease(fn func(context.Context, LockReleasedEvent) error) func()
+	WaitForLock(ctx context.Context, domain, stream, consumer, holder string, ttl time.Duration) (LockLease, int64, time.Duration, error)
+}

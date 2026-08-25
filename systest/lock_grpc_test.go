@@ -17,39 +17,37 @@ import (
 
 func TestGRPCLockAcquireAndRelease(t *testing.T) {
 	t.Parallel()
-	skipUnlessGRPC(t)
-
 	harness := setupHarnessT(t)
+	locks := harness.requireLocks(t)
 
 	ctx := harness.ctx
 	consumer := faker.Word()
 	holder := faker.Word()
 
-	result, err := harness.transport.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder, 30*time.Second)
+	result, err := locks.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder, 30*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.True(t, result.Acquired)
 	assert.Equal(t, holder, result.HeldBy)
 
-	err = harness.transport.Release(ctx, harness.appName, harness.streamName, consumer, holder)
+	err = locks.Release(ctx, harness.appName, harness.streamName, consumer, holder)
 	require.NoError(t, err)
 }
 
 func TestGRPCLockConflict(t *testing.T) {
 	t.Parallel()
-	skipUnlessGRPC(t)
-
 	harness := setupHarnessT(t)
+	locks := harness.requireLocks(t)
 
 	ctx := harness.ctx
 	consumer := faker.Word()
 	holder1 := faker.Word() + "-1"
 	holder2 := faker.Word() + "-2"
 
-	_, err := harness.transport.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder1, 30*time.Second)
+	_, err := locks.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder1, 30*time.Second)
 	require.NoError(t, err)
 
-	result, err := harness.transport.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder2, 30*time.Second)
+	result, err := locks.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder2, 30*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, result)
 	assert.False(t, result.Acquired)
@@ -58,36 +56,34 @@ func TestGRPCLockConflict(t *testing.T) {
 
 func TestGRPCLockListLocks(t *testing.T) {
 	t.Parallel()
-	skipUnlessGRPC(t)
-
 	harness := setupHarnessT(t)
+	locks := harness.requireLocks(t)
 
 	ctx := harness.ctx
 
-	_, err := harness.transport.TryAcquire(ctx, harness.appName, harness.streamName, "consumer-a", "holder-a", 30*time.Second)
+	_, err := locks.TryAcquire(ctx, harness.appName, harness.streamName, "consumer-a", "holder-a", 30*time.Second)
 	require.NoError(t, err)
-	_, err = harness.transport.TryAcquire(ctx, harness.appName, harness.streamName, "consumer-b", "holder-b", 30*time.Second)
+	_, err = locks.TryAcquire(ctx, harness.appName, harness.streamName, "consumer-b", "holder-b", 30*time.Second)
 	require.NoError(t, err)
 
-	locks, err := harness.transport.ListLocks(ctx, harness.appName, harness.streamName)
+	lockList, err := locks.ListLocks(ctx, harness.appName, harness.streamName)
 	require.NoError(t, err)
-	assert.Len(t, locks, 2)
+	assert.Len(t, lockList, 2)
 }
 
 func TestGRPCHeartbeatWithPosition(t *testing.T) {
 	t.Parallel()
-	skipUnlessGRPC(t)
-
 	harness := setupHarnessT(t)
+	locks := harness.requireLocks(t)
 
 	ctx := harness.ctx
 	consumer := faker.Word()
 	holder := faker.Word()
 
-	_, err := harness.transport.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder, 30*time.Second)
+	_, err := locks.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder, 30*time.Second)
 	require.NoError(t, err)
 
-	err = harness.transport.HeartbeatWithPosition(ctx, harness.appName, harness.streamName, consumer, holder, 42)
+	err = locks.HeartbeatWithPosition(ctx, harness.appName, harness.streamName, consumer, holder, 42)
 	require.NoError(t, err)
 
 	pos, found, err := harness.transport.GetPosition(ctx, harness.appName, harness.streamName, consumer)
@@ -98,15 +94,14 @@ func TestGRPCHeartbeatWithPosition(t *testing.T) {
 
 func TestGRPCSubmitWithLock(t *testing.T) {
 	t.Parallel()
-	skipUnlessGRPC(t)
-
 	harness := setupHarnessT(t)
+	locks := harness.requireLocks(t)
 
 	ctx := harness.ctx
 	consumer := faker.Word()
 	holder := faker.Word()
 
-	_, err := harness.transport.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder, 30*time.Second)
+	_, err := locks.TryAcquire(ctx, harness.appName, harness.streamName, consumer, holder, 30*time.Second)
 	require.NoError(t, err)
 
 	lock := v1.NewLock(consumer, holder)
@@ -117,9 +112,8 @@ func TestGRPCSubmitWithLock(t *testing.T) {
 
 func TestGRPCSubmitWithExpiredLock(t *testing.T) {
 	t.Parallel()
-	skipUnlessGRPC(t)
-
 	harness := setupHarnessT(t)
+	_ = harness.requireLocks(t)
 
 	ctx := harness.ctx
 	consumer := faker.Word()
@@ -189,27 +183,15 @@ func TestGRPCKeepAliveFirstHeartbeatValidatesHolder(t *testing.T) {
 // the lock is released and that the second waiter then acquires it.
 func TestGRPCWaitForLock_BlocksUntilReleased(t *testing.T) {
 	t.Parallel()
-	skipUnlessGRPC(t)
-
 	harness := setupHarnessT(t)
+	locks := harness.requireLocks(t)
+
 	consumer := faker.Word()
 	holder1 := faker.Word() + "-1"
 	holder2 := faker.Word() + "-2"
 
-	// Create two completely independent connections
-	conn1, err := grpc.NewClient(harness.serviceURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, conn1.Close()) })
-
-	conn2, err := grpc.NewClient(harness.serviceURL, grpc.WithTransportCredentials(insecure.NewCredentials()))
-	require.NoError(t, err)
-	t.Cleanup(func() { require.NoError(t, conn2.Close()) })
-
-	wire1 := v1.NewGrpcWire(conn1)
-	wire2 := v1.NewGrpcWire(conn2)
-
 	// holder1 acquires the lock and heartbeats a position
-	lock1, pos1, _, err := wire1.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder1, 30*time.Second)
+	lock1, pos1, _, err := locks.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder1, 30*time.Second)
 	require.NoError(t, err)
 	require.NotNil(t, lock1)
 	assert.Equal(t, int64(0), pos1, "fresh consumer should have position 0")
@@ -219,11 +201,11 @@ func TestGRPCWaitForLock_BlocksUntilReleased(t *testing.T) {
 
 	// holder2 tries to acquire - should block
 	done := make(chan error, 1)
-	var lock2 *v1.KeepAlive
+	var lock2 v1.LockLease
 	var pos2 int64
 	go func() {
 		var err error
-		lock2, pos2, _, err = wire2.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder2, 30*time.Second)
+		lock2, pos2, _, err = locks.WaitForLock(harness.ctx, harness.appName, harness.streamName, consumer, holder2, 30*time.Second)
 		done <- err
 	}()
 

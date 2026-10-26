@@ -36,6 +36,9 @@ func (q *Query) OnID(id int64) *IDClause {
 }
 
 // After adds a clause to filter events to only those with an ID greater than the specified value.
+//
+// Note: After() does not apply to OnID clauses. When both are specified,
+// After() is ignored for ID-specific lookups.
 func (q *Query) After(id int64) *Query {
 	q.afterID = &id
 	return q

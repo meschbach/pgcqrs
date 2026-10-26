@@ -2,6 +2,7 @@ package indexer
 
 import (
 	"context"
+	"errors"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -49,7 +50,10 @@ func TestPump_Deduplication(t *testing.T) {
 	}, 2*time.Second, 50*time.Millisecond, "all 3 events should be processed exactly once")
 
 	cancel()
-	<-done
+	err = <-done
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	seen := indexer.getSeen()
 	require.Len(t, seen, 3, "all 3 events should be processed exactly once")
@@ -133,7 +137,10 @@ func TestPump_UnreliableHeartbeat(t *testing.T) {
 	}, 3*time.Second, 100*time.Millisecond)
 
 	pumpCancel()
-	<-pumpDone
+	err = <-pumpDone
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 // TestPump_WatchFailureRecovery verifies that the pump exits cleanly on context
@@ -271,7 +278,10 @@ func TestPump_HeartbeatConflictUpdatesPosition(t *testing.T) {
 	mu.Unlock()
 
 	pumpCancel()
-	<-pumpDone
+	err = <-pumpDone
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 // heartbeatFailingLock wraps a MemoryLock and can be configured to fail heartbeats.
@@ -380,5 +390,8 @@ func TestPump_HeartbeatFailureRecovery(t *testing.T) {
 	}, 3*time.Second, 100*time.Millisecond)
 
 	pumpCancel()
-	<-pumpDone
+	err = <-pumpDone
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }

@@ -2,6 +2,7 @@
 
 ## Purpose
 TBD - created by archiving change integ-test-diagnostics. Update Purpose after archive.
+
 ## Requirements
 ### Requirement: Diagnostics directory per integration run
 The integration test script (`integration-tests.sh`) SHALL write all diagnostics for a run into `run/test-diagnostics/<run-id>/` under the repository root (resolved from the script location, independent of the caller's working directory), where `<run-id>` is a UTC timestamp plus mode plus process ID (e.g., `20260823-141505-local-4711`) so consecutive invocations cannot collide even within the same second. Each transport suite that executes SHALL produce its output file (`test-memory.out`, `test-http.out`, `test-grpc.out`); a run executing all three suites produces all three. Every run SHALL contain `summary.txt`. Local runs SHALL additionally stream service stderr — and only stderr; stdout is intentionally uncaptured — live into `server.log` and, on failure, produce `goroutines.txt` per the dump policy below. Docked runs produce no server-owned files; on failure they produce `docker-service.log` per the docked diagnostics requirement below. The base path SHALL be overridable via `PGCQRS_TEST_DIAG_DIR`.
@@ -30,10 +31,10 @@ The script console output SHALL consist of phase banners with per-phase result a
 - **THEN** the console prints `[grpc] FAIL <duration>`, the last 40 lines of `test-grpc.out`, the path to the full file, and exits non-zero after writing `goroutines.txt`
 
 ### Requirement: Readiness gating before transports
-In both `local` and `docked` modes the script SHALL poll `GET /ops/readiness` on the mode's HTTP endpoint for up to 15 seconds before running any transport suite, treating only an HTTP 200 response as ready (a successful connection alone SHALL NOT satisfy the gate), replacing fixed startup sleeps. In `local` mode the poll loop SHALL additionally check the owned service process each iteration and treat its death before a successful probe as immediate startup failure, so a stale instance answering 200 on the same port can never gate the run.
+In both `local` and `docked` modes the script SHALL poll `GET /ops/readiness` on the mode's operational (ops) endpoint for up to 15 seconds before running any transport suite, treating only an HTTP 200 response as ready (a successful connection alone SHALL NOT satisfy the gate), replacing fixed startup sleeps. The ops endpoint SHALL be resolved independently of the client HTTP endpoint, from the ops listener address. In `local` mode the poll loop SHALL additionally check the owned service process each iteration and treat its death before a successful probe as immediate startup failure, so a stale instance answering 200 on the same port can never gate the run.
 
 #### Scenario: Service becomes ready promptly
-- **WHEN** `/ops/readiness` returns HTTP 200 within the deadline
+- **WHEN** `/ops/readiness` returns HTTP 200 on the ops endpoint within the deadline
 - **THEN** the script proceeds immediately to run the transport suites
 
 #### Scenario: Local service never becomes ready
@@ -47,6 +48,10 @@ In both `local` and `docked` modes the script SHALL poll `GET /ops/readiness` on
 #### Scenario: Local server process dies during polling
 - **WHEN** the owned service process exits while `/ops/readiness` has not yet returned HTTP 200 (for example, a bind failure caused by an occupied port)
 - **THEN** the script aborts polling immediately, records the startup failure in `summary.txt`, points at `server.log` on the console, and exits non-zero without running any transport suite
+
+#### Scenario: Readiness probe targets the ops endpoint, not the client endpoint
+- **WHEN** the ops listener address differs from the client HTTP address
+- **THEN** the readiness gate polls the ops endpoint and succeeds even though `/ops/readiness` is not served on the client endpoint
 
 ### Requirement: Self-bounded total runtime
 The script SHALL terminate on its own via internal deadlines (startup-readiness deadline and per-suite go test timeouts) without relying on external timeouts, so that external job timeouts act only as last-resort safety nets and CI failure-path artifact steps reliably execute.
@@ -113,8 +118,8 @@ Both GitHub workflows that invoke `integration-tests.sh` SHALL upload `run/test-
 - **THEN** an artifact containing whatever diagnostics were written — including the live-streamed `server.log` — is attached to the run
 
 ### Requirement: Operations documentation
-A `docs/operations.md` SHALL document: the `/ops/liveness` and `/ops/readiness` endpoints and their use by the Helm chart probes, the diagnostics directory contract and cleanup guidance, the CI artifact behavior, the readiness gating used by the integration script, and the known gap that gRPC exposes no standard health service.
+A `docs/operations.md` SHALL document: the `/ops/liveness` and `/ops/readiness` endpoints, the dedicated ops listener they are served on (including its configuration keys and environment variables), and their use by the Helm chart probes; the diagnostics directory contract and cleanup guidance; the CI artifact behavior; the readiness gating used by the integration script; and the known gap that gRPC exposes no standard health service.
 
 #### Scenario: Operator can diagnose a stuck service from the doc alone
 - **WHEN** an operator reads `docs/operations.md` after an integration run failure
-- **THEN** the doc tells them where diagnostics live, what each file contains, how readiness gating works, and which health endpoints exist across HTTP and gRPC
+- **THEN** the doc tells them where diagnostics live, what each file contains, how readiness gating works, which health endpoints exist across HTTP and gRPC, and which listener and address serve the ops endpoints

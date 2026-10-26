@@ -55,17 +55,22 @@ spec:
             - name: grpc
               containerPort: 9001
               protocol: TCP
+            - name: ops
+              containerPort: 9002
+              protocol: TCP
           livenessProbe:
             httpGet:
               path: /ops/liveness
-              port: http
+              port: ops
           readinessProbe:
             httpGet:
               path: /ops/readiness
-              port: http
+              port: ops
           env:
             - name: PGCQRS_LISTENER_ADDRESS
               value: 0.0.0.0:9000
+            - name: PGCQRS_OPS_LISTENER_ADDRESS
+              value: 0.0.0.0:9002
           {{- with .Values.env }}
             {{- toYaml . | nindent 12 }}
           {{- end }}

@@ -3,194 +3,184 @@ package service
 import (
 	"context"
 	"testing"
-	"time"
+
+	"testing/synctest"
 
 	"github.com/meschbach/go-junk-bucket/pkg/emitter"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
 
-func TestRequerySignalSeedArrivesImmediately(t *testing.T) {
-	t.Parallel()
-	em := emitter.NewMutexDispatcher[EventStorageEvent]()
-	ctx := t.Context()
+func TestRequerySignalSeedArrivesImmediately(t *testing.T) { //nolint:paralleltest // synctest.Test doesn't support t.Parallel() inside bubble
+	synctest.Test(t, func(t *testing.T) {
+		em := emitter.NewMutexDispatcher[EventStorageEvent]()
+		ctx := t.Context()
 
-	signal := NewRequerySignal(ctx, em)
-	defer signal.Close()
+		signal := NewRequerySignal(ctx, em)
+		defer signal.Close()
 
-	done := make(chan error, 1)
-	go func() {
-		done <- signal.Wait(ctx)
-	}()
+		done := make(chan error, 1)
+		go func() {
+			done <- signal.Wait(ctx)
+		}()
 
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Wait should return immediately from seed")
-	}
+		// Wait for the goroutine to enter signal.Wait and consume the seed
+		synctest.Wait()
+		require.NoError(t, <-done)
+	})
 }
 
-func TestRequerySignalQueuesDuringBusyPeriod(t *testing.T) {
-	t.Parallel()
-	em := emitter.NewMutexDispatcher[EventStorageEvent]()
-	ctx := t.Context()
+func TestRequerySignalQueuesDuringBusyPeriod(t *testing.T) { //nolint:paralleltest // synctest.Test doesn't support t.Parallel() inside bubble
+	synctest.Test(t, func(t *testing.T) {
+		em := emitter.NewMutexDispatcher[EventStorageEvent]()
+		ctx := t.Context()
 
-	signal := NewRequerySignal(ctx, em)
-	defer signal.Close()
+		signal := NewRequerySignal(ctx, em)
+		defer signal.Close()
 
-	// Consume the seed
-	done := make(chan error, 1)
-	go func() {
-		done <- signal.Wait(ctx)
-	}()
-	<-done
+		// Consume the seed
+		done := make(chan error, 1)
+		go func() {
+			done <- signal.Wait(ctx)
+		}()
+		synctest.Wait()
+		require.NoError(t, <-done)
 
-	// Now call Wait again (simulating "busy" period where we're processing)
-	go func() {
-		done <- signal.Wait(ctx)
-	}()
+		// Now call Wait again (simulating "busy" period where we're processing)
+		go func() {
+			done <- signal.Wait(ctx)
+		}()
 
-	// Give goroutine time to enter Wait
-	time.Sleep(10 * time.Millisecond)
+		// Wait for goroutine to enter Wait
+		synctest.Wait()
 
-	// Emit event while "busy" (Wait is waiting)
-	require.NoError(t, em.Emit(ctx, EventStorageEvent{}))
-
-	// Wait should return because signal was queued
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Wait should return after queued signal")
-	}
-}
-
-func TestRequerySignalMultipleSignalsCoalesce(t *testing.T) {
-	t.Parallel()
-	em := emitter.NewMutexDispatcher[EventStorageEvent]()
-	ctx := t.Context()
-
-	signal := NewRequerySignal(ctx, em)
-	defer signal.Close()
-
-	// Consume the seed
-	done := make(chan error, 1)
-	go func() {
-		done <- signal.Wait(ctx)
-	}()
-	<-done
-
-	// Emit 5 events rapidly
-	for i := 0; i < 5; i++ {
+		// Emit event while "busy" (Wait is waiting)
 		require.NoError(t, em.Emit(ctx, EventStorageEvent{}))
-	}
 
-	// Wait should return once (signals coalesced)
-	go func() {
-		done <- signal.Wait(ctx)
-	}()
-
-	select {
-	case err := <-done:
-		require.NoError(t, err)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Wait should return once after coalesced signals")
-	}
-
-	// Verify no more signals pending
-	select {
-	case <-done:
-		t.Fatal("Should not have a second signal")
-	case <-time.After(50 * time.Millisecond):
-		// Expected: no more signals
-	}
+		// Wait should return because signal was queued
+		synctest.Wait()
+		require.NoError(t, <-done)
+	})
 }
 
-func TestRequerySignalContextCancellationUnblocksWait(t *testing.T) {
-	t.Parallel()
-	em := emitter.NewMutexDispatcher[EventStorageEvent]()
+func TestRequerySignalMultipleSignalsCoalesce(t *testing.T) { //nolint:paralleltest // synctest.Test doesn't support t.Parallel() inside bubble
+	synctest.Test(t, func(t *testing.T) {
+		em := emitter.NewMutexDispatcher[EventStorageEvent]()
+		ctx := t.Context()
 
-	signal := NewRequerySignal(t.Context(), em)
-	defer signal.Close()
+		signal := NewRequerySignal(ctx, em)
+		defer signal.Close()
 
-	// Consume the seed
-	ctx := t.Context()
-	done := make(chan error, 1)
-	go func() {
-		done <- signal.Wait(ctx)
-	}()
-	<-done
+		// Consume the seed
+		done := make(chan error, 1)
+		go func() {
+			done <- signal.Wait(ctx)
+		}()
+		synctest.Wait()
+		require.NoError(t, <-done)
 
-	// Create cancellable context for next Wait
-	waitCtx, cancel := context.WithCancel(ctx)
+		// Emit 5 events rapidly
+		for i := 0; i < 5; i++ {
+			require.NoError(t, em.Emit(ctx, EventStorageEvent{}))
+		}
 
-	go func() {
-		done <- signal.Wait(waitCtx)
-	}()
+		// Wait should return once (signals coalesced)
+		go func() {
+			done <- signal.Wait(ctx)
+		}()
 
-	// Give goroutine time to enter Wait
-	time.Sleep(10 * time.Millisecond)
+		synctest.Wait()
+		require.NoError(t, <-done)
 
-	// Cancel context
-	cancel()
+		// Verify no more signals pending - channel should not receive again
+		// After synctest.Wait(), if there were another signal, the goroutine would have returned
+		// Since we haven't called Wait again, no more signals should be pending
+	})
+}
 
-	// Wait should return with context error
-	select {
-	case err := <-done:
+func TestRequerySignalContextCancellationUnblocksWait(t *testing.T) { //nolint:paralleltest // synctest.Test doesn't support t.Parallel() inside bubble
+	synctest.Test(t, func(t *testing.T) {
+		em := emitter.NewMutexDispatcher[EventStorageEvent]()
+
+		signal := NewRequerySignal(t.Context(), em)
+		defer signal.Close()
+
+		// Consume the seed
+		ctx := t.Context()
+		done := make(chan error, 1)
+		go func() {
+			done <- signal.Wait(ctx)
+		}()
+		synctest.Wait()
+		require.NoError(t, <-done)
+
+		// Create cancellable context for next Wait
+		waitCtx, cancel := context.WithCancel(ctx)
+
+		go func() {
+			done <- signal.Wait(waitCtx)
+		}()
+
+		// Wait for goroutine to enter Wait
+		synctest.Wait()
+
+		// Cancel context
+		cancel()
+
+		// Wait should return with context error
+		synctest.Wait()
+		err := <-done
 		require.Error(t, err)
 		assert.Equal(t, context.Canceled, err)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Wait should return on context cancellation")
-	}
+	})
 }
 
-func TestRequerySignalCloseCleansUp(t *testing.T) {
-	t.Parallel()
-	em := emitter.NewMutexDispatcher[EventStorageEvent]()
-	ctx := t.Context()
+func TestRequerySignalCloseCleansUp(t *testing.T) { //nolint:paralleltest // synctest.Test doesn't support t.Parallel() inside bubble
+	synctest.Test(t, func(t *testing.T) {
+		em := emitter.NewMutexDispatcher[EventStorageEvent]()
+		ctx := t.Context()
 
-	signal := NewRequerySignal(ctx, em)
+		signal := NewRequerySignal(ctx, em)
 
-	// Close should not panic
-	signal.Close()
+		// Close should not panic
+		signal.Close()
 
-	// Double close should not panic
-	signal.Close()
+		// Double close should not panic
+		signal.Close()
 
-	// Emit after close should not panic (listener removed)
-	require.NoError(t, em.Emit(ctx, EventStorageEvent{}))
+		// Emit after close should not panic (listener removed)
+		require.NoError(t, em.Emit(ctx, EventStorageEvent{}))
+	})
 }
 
-func TestRequerySignalWaitReturnsContextError(t *testing.T) {
-	t.Parallel()
-	em := emitter.NewMutexDispatcher[EventStorageEvent]()
+func TestRequerySignalWaitReturnsContextError(t *testing.T) { //nolint:paralleltest // synctest.Test doesn't support t.Parallel() inside bubble
+	synctest.Test(t, func(t *testing.T) {
+		em := emitter.NewMutexDispatcher[EventStorageEvent]()
 
-	signal := NewRequerySignal(t.Context(), em)
-	defer signal.Close()
+		signal := NewRequerySignal(t.Context(), em)
+		defer signal.Close()
 
-	// Consume the seed
-	ctx := t.Context()
-	done := make(chan error, 1)
-	go func() {
-		done <- signal.Wait(ctx)
-	}()
-	<-done
+		// Consume the seed
+		ctx := t.Context()
+		done := make(chan error, 1)
+		go func() {
+			done <- signal.Wait(ctx)
+		}()
+		synctest.Wait()
+		require.NoError(t, <-done)
 
-	// Create already-canceled context
-	cancelledCtx, cancel := context.WithCancel(ctx)
-	cancel()
+		// Create already-canceled context
+		cancelledCtx, cancel := context.WithCancel(ctx)
+		cancel()
 
-	// Wait should return immediately with context error
-	go func() {
-		done <- signal.Wait(cancelledCtx)
-	}()
+		// Wait should return immediately with context error
+		go func() {
+			done <- signal.Wait(cancelledCtx)
+		}()
 
-	select {
-	case err := <-done:
+		synctest.Wait()
+		err := <-done
 		require.Error(t, err)
 		assert.Equal(t, context.Canceled, err)
-	case <-time.After(100 * time.Millisecond):
-		t.Fatal("Wait should return immediately on canceled context")
-	}
+	})
 }

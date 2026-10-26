@@ -14,7 +14,6 @@ import (
 	"github.com/meschbach/pgcqrs/internal/junk"
 	"github.com/meschbach/pgcqrs/internal/junk/restful"
 	storage2 "github.com/meschbach/pgcqrs/internal/service/storage"
-	"github.com/thejerf/suture/v4"
 	"go.opentelemetry.io/contrib/instrumentation/github.com/gorilla/mux/otelmux"
 )
 
@@ -30,13 +29,9 @@ type Result struct {
 	Ok bool `json:"ok"`
 }
 
-func (s *service) routes() http.Handler {
+func (s *service) dataRoutes() http.Handler {
 	root := mux.NewRouter()
 	root.HandleFunc("/", s.serviceInfoRoute())
-
-	ops := root.PathPrefix("/ops").Subrouter()
-	ops.HandleFunc("/liveness", s.livenessRoute())
-	ops.HandleFunc("/readiness", s.readinessRoute())
 
 	v1Router := root.PathPrefix("/v1").Subrouter()
 	v1Router.Use(otelmux.Middleware("pgcqrs.http.v1"))
@@ -99,6 +94,39 @@ func (s *service) routes() http.Handler {
 	v1Router.PathPrefix("/domains/{domain}/streams/{stream}/positions").Methods(http.MethodGet).HandlerFunc(s.listConsumers())
 
 	return root
+}
+
+func (s *service) opsRoutes() http.Handler {
+	root := mux.NewRouter()
+	root.HandleFunc("/", func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "text/html; charset=utf-8")
+		_, err := writer.Write([]byte("<html><body><h1>Ops</h1><ul><li>/ops/liveness - Liveness probe</li><li>/ops/readiness - Readiness probe</li></ul></body></html>"))
+		if err != nil {
+			panic(err)
+		}
+	})
+	ops := root.PathPrefix("/ops").Subrouter()
+	ops.HandleFunc("/liveness", s.livenessRoute())
+	ops.HandleFunc("/readiness", s.readinessRoute())
+	return root
+}
+
+func (s *service) serveOps(_ context.Context, cfg *OpsListenerConfig) error {
+	if cfg == nil || cfg.Enabled == nil || !*cfg.Enabled {
+		return nil
+	}
+	address := cfg.Address
+	if address == "" {
+		address = "127.0.0.1:9002"
+	}
+	server := &http.Server{
+		Handler:      s.opsRoutes(),
+		Addr:         address,
+		ReadTimeout:  5 * time.Second,
+		WriteTimeout: 5 * time.Second,
+	}
+	fmt.Printf("Serving ops traffic at %s\n", address)
+	return server.ListenAndServe()
 }
 
 func (s *service) getPosition() func(http.ResponseWriter, *http.Request) {
@@ -205,27 +233,22 @@ func (s *service) listConsumers() func(http.ResponseWriter, *http.Request) {
 	}
 }
 
-func (s *service) serve(_ context.Context, config *ListenerConfig) {
+func (s *service) serve(_ context.Context, config *ListenerConfig) error {
 	listenerAddress := "localhost:9000"
 	if config != nil {
 		listenerAddress = config.Address
 	}
 	server := &http.Server{
-		Handler:      s.routes(),
+		Handler:      s.dataRoutes(),
 		Addr:         listenerAddress,
 		WriteTimeout: 30 * time.Second,
 		ReadTimeout:  30 * time.Second,
 	}
 	fmt.Printf("Serving traffic at %s\n", listenerAddress)
-	var err error
 	if config != nil && config.TLS != nil {
-		err = server.ListenAndServeTLS(*config.TLS.CertificateFile, *config.TLS.KeyFile)
-	} else {
-		err = server.ListenAndServe()
+		return server.ListenAndServeTLS(*config.TLS.CertificateFile, *config.TLS.KeyFile)
 	}
-	if err != nil {
-		panic(err)
-	}
+	return server.ListenAndServe()
 }
 
 // Serve starts the CQRS service with the given configuration.
@@ -246,40 +269,51 @@ func Serve(ctx context.Context, cfg *Config) {
 		}
 	}()
 
-	var appDone <-chan error
+	listenerErrors := make(chan error, 3)
 	s := &service{
 		bus: newBus(),
 	}
 
-	func() {
-		startup, span := tracer.Start(ctx, "pgcqrs.start")
-		defer span.End()
-		pool, err := pgxpool.New(startup, "postgres://"+cfg.Storage.Primary.DatabaseURL)
-		if err != nil {
-			panic(err)
-		}
-		connConfig := pool.Config().ConnConfig
-		fmt.Printf("Connected to database: user=%s host=%s database=%s\n", connConfig.User, connConfig.Host, connConfig.Database)
-		s.storage = &storage{pg: pool}
-		s.repository = storage2.RepositoryWithPool(pool)
-		s.consumerStore = storage2.NewConsumerStore(pool)
+	go startListeners(ctx, cfg, s, listenerErrors)
 
-		app := suture.NewSimple("pgcqrs")
-		if cfg.GRPCListener != nil {
-			app.Add(&grpcPort{
-				config:        cfg.GRPCListener,
-				oldCore:       s.storage,
-				core:          s.repository,
-				bus:           s.bus,
-				consumerStore: s.consumerStore,
-				pool:          pool,
-			})
-		}
-		appDone = app.ServeBackground(ctx)
-		s.serve(startup, cfg.Listener)
-	}()
-	appDoneError := <-appDone
+	appDoneError := <-listenerErrors
 	if appDoneError != nil {
 		fmt.Fprintf(os.Stderr, "Error with app: %s\n", appDoneError.Error())
 	}
+}
+
+func startListeners(ctx context.Context, cfg *Config, s *service, listenerErrors chan error) {
+	startup, span := tracer.Start(ctx, "pgcqrs.start")
+	defer span.End()
+	pool, err := pgxpool.New(startup, "postgres://"+cfg.Storage.Primary.DatabaseURL)
+	if err != nil {
+		panic(err)
+	}
+	connConfig := pool.Config().ConnConfig
+	fmt.Printf("Connected to database: user=%s host=%s database=%s\n", connConfig.User, connConfig.Host, connConfig.Database)
+	s.storage = &storage{pg: pool}
+	s.repository = storage2.RepositoryWithPool(pool)
+	s.consumerStore = storage2.NewConsumerStore(pool)
+
+	if cfg.GRPCListener != nil {
+		grpcPortObj := &grpcPort{
+			config:        cfg.GRPCListener,
+			oldCore:       s.storage,
+			core:          s.repository,
+			bus:           s.bus,
+			consumerStore: s.consumerStore,
+			pool:          pool,
+		}
+		go func() {
+			listenerErrors <- grpcPortObj.Serve(ctx)
+		}()
+	}
+
+	if cfg.OpsListener != nil && (cfg.OpsListener.Enabled == nil || *cfg.OpsListener.Enabled) {
+		go func() {
+			listenerErrors <- s.serveOps(ctx, cfg.OpsListener)
+		}()
+	}
+
+	listenerErrors <- s.serve(startup, cfg.Listener)
 }

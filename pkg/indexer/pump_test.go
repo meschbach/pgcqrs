@@ -40,7 +40,10 @@ func TestPumpAcquiresLockAndProcessesEvents(t *testing.T) {
 	}, 2*time.Second, 50*time.Millisecond, "all 3 events should be processed")
 
 	cancel()
-	<-done
+	err := <-done
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	seen := indexer.getSeen()
 	assert.Len(t, seen, 3, "all 3 events should be processed")
@@ -76,7 +79,10 @@ func TestPumpLockLifecycle(t *testing.T) {
 	assert.NotNil(t, lock)
 
 	cancel()
-	<-done
+	err = <-done
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 }
 
 func TestPumpPositionTracking(t *testing.T) {
@@ -111,7 +117,10 @@ func TestPumpPositionTracking(t *testing.T) {
 	}, 5*time.Second, 50*time.Millisecond)
 
 	cancel()
-	<-done
+	err = <-done
+	if err != nil && !errors.Is(err, context.Canceled) {
+		t.Fatalf("unexpected error: %v", err)
+	}
 
 	seen := indexer.getSeen()
 	require.Len(t, seen, 3, "only events after position 1 should be processed")

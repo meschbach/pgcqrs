@@ -72,8 +72,10 @@ The `dev.sh` script provides fine-grained control over the development workflow:
 
 Alternatively, use `docker-up.sh` for quicker setup on ports 26000 (HTTP) and 26001 (gRPC).
 
-> Service health endpoints (`/ops/liveness`, `/ops/readiness`) and integration-test
-> diagnostics (`run/test-diagnostics/`) are documented in `docs/operations.md`.
+> Service health endpoints (`/ops/liveness`, `/ops/readiness`) are served on the dedicated
+> ops listener (`PGCQRS_OPS_LISTENER_ADDRESS`, default `127.0.0.1:9002`) and
+> integration-test diagnostics (`run/test-diagnostics/`) are documented in
+> `docs/operations.md`. The client HTTP listener (`9000`) no longer serves `/ops/*`.
 
 ### Local Development Experience (DevXP)
 

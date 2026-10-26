@@ -19,6 +19,10 @@ linters:
         linters:
           - errcheck
           - revive
+      # Embedding pump state field is intentionally unused (planned feature)
+      - path: "pkg/indexer/embedding/pump\\.go"
+        linters:
+          - unused
   enable:
     # Core
     - errcheck

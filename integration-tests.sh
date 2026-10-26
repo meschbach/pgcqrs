@@ -259,7 +259,12 @@ case "$MODE" in
         # from the service's own resolution instead of hardcoding ports.
         LISTEN_ADDR="${PGCQRS_LISTENER_ADDRESS:-localhost:9000}"
         HTTP_URL="http://${LISTEN_ADDR}"
-        READY_URL="${HTTP_URL}"
+        OPS_LISTEN_ADDR="${PGCQRS_OPS_LISTENER_ADDRESS:-127.0.0.1:9002}"
+        # 0.0.0.0 is a fine bind default but not a portable dial target
+        case "$OPS_LISTEN_ADDR" in
+            0.0.0.0:*) OPS_LISTEN_ADDR="127.0.0.1:${OPS_LISTEN_ADDR#0.0.0.0:}" ;;
+        esac
+        READY_URL="http://${OPS_LISTEN_ADDR}"
         GRPC_URL="${PGCQRS_GRPC_LISTENER_ADDRESS:-localhost:9001}"
         # 0.0.0.0 is a fine bind default but not a portable dial target
         case "$GRPC_URL" in
@@ -281,8 +286,9 @@ case "$MODE" in
     docked)
         echo "=== Using docked service ==="
         HTTP_URL="http://localhost:26000"
+        READY_URL="http://localhost:26002"
         GRPC_URL="localhost:26001"
-        if ! await_ready "$HTTP_URL"; then
+        if ! await_ready "$READY_URL"; then
             report_startup_failure \
                 "docked service did not become ready" \
                 "docked service did not become ready at $HTTP_URL within deadline"

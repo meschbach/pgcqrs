@@ -1,9 +1,14 @@
-// Package query2 provides a fluent API for building and executing more complex queries against a `pgcqrs` stream.
+// Package query2 provides a fluent API for building and executing more complex queries against a pgcqrs stream.
 // It enables building queries with multiple clauses in a builder style.
 //
 // # Usage
 //
 // To create a new query, use `query2.NewQuery(stream)`. From there, you may add `OnKind` and `OnID` clauses.
+//
+// # Note
+//
+// The After() clause does not apply to OnID clauses. When both are specified,
+// After() is ignored for ID-specific lookups.
 //
 // # Example
 //

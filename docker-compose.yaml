@@ -29,6 +29,7 @@ services:
       PGCQRS_STORAGE_POSTGRES_URL: pgcqrs:pgcqrs-password@pg18:5432/pgcqrs_pg18?sslmode=disable
       PGCQRS_LISTENER_ADDRESS: 0.0.0.0:9000
       PGCQRS_GRPC_LISTENER_ADDRESS: 0.0.0.0:9001
+      PGCQRS_OPS_LISTENER_ADDRESS: 0.0.0.0:9002
       # Open Telemetry Configuration
       OTEL_EXPORTER_OTLP_ENDPOINT: "http://pgcqrs_devxp_otel:4317"
       OTEL_LOG_LEVEL: debug
@@ -38,14 +39,16 @@ services:
     ports:
       - "26000:9000"
       - "26001:9001"
+      - "26002:9002"
     expose:
       - 9000
       - 9001
+      - 9002
     depends_on:
       migrator:
         condition: service_completed_successfully
     healthcheck:
-      test: ["CMD","/service", "health-check", "http"]
+      test: ["CMD","/service", "health-check", "ops"]
       interval: 30s
       timeout: 1s
       retries: 3

@@ -1,6 +1,9 @@
 package service
 
 import (
+	"os"
+	"strconv"
+
 	"github.com/meschbach/go-junk-bucket/pkg"
 	"github.com/meschbach/go-junk-bucket/pkg/observability"
 	"github.com/meschbach/pgcqrs/internal"
@@ -12,6 +15,7 @@ type Config struct {
 	Storage      internal.Storage    `json:"storage"`
 	Listener     *ListenerConfig     `json:"listener,omitempty"`
 	GRPCListener *GRPCListenerConfig `json:"grpc-listener,omitempty"`
+	OpsListener  *OpsListenerConfig  `json:"ops-listener,omitempty"`
 }
 
 // LoadDefaults populates the configuration with default values.
@@ -25,6 +29,11 @@ func (c *Config) LoadDefaults() {
 		c.GRPCListener = &GRPCListenerConfig{}
 	}
 	c.GRPCListener.LoadDefaults()
+
+	if c.OpsListener == nil {
+		c.OpsListener = &OpsListenerConfig{}
+	}
+	c.OpsListener.LoadDefaults()
 
 	if url := pkg.EnvOrDefault("PGCQRS_STORAGE_POSTGRES_URL", ""); url != "" {
 		c.Storage.Primary.DatabaseURL = url
@@ -57,6 +66,25 @@ type GRPCListenerConfig struct {
 // LoadDefaults populates the gRPC listener configuration with default values.
 func (g *GRPCListenerConfig) LoadDefaults() {
 	g.Address = pkg.EnvOrDefault("PGCQRS_GRPC_LISTENER_ADDRESS", "0.0.0.0:9001")
+}
+
+// OpsListenerConfig represents the ops listener configuration.
+type OpsListenerConfig struct {
+	Address string `json:"address"`
+	Enabled *bool  `json:"enabled,omitempty"`
+}
+
+// LoadDefaults populates the ops listener configuration with default values.
+func (o *OpsListenerConfig) LoadDefaults() {
+	o.Address = pkg.EnvOrDefault("PGCQRS_OPS_LISTENER_ADDRESS", "127.0.0.1:9002")
+	enabled := true
+	o.Enabled = &enabled
+	if value, ok := os.LookupEnv("PGCQRS_OPS_LISTENER_ENABLED"); ok {
+		if parsed, err := strconv.ParseBool(value); err == nil {
+			enabled = parsed
+			o.Enabled = &enabled
+		}
+	}
 }
 
 // PKIServiceConfig represents the PKI configuration for a service.

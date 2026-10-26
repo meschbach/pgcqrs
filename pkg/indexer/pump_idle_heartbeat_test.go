@@ -3,6 +3,7 @@ package indexer
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"sync"
 	"testing"
 	"time"
@@ -107,7 +108,10 @@ func TestPump_IdleHeartbeat_HeartbeatKeepsLockAlive(t *testing.T) {
 		assert.NotNil(t, lock)
 
 		pumpCancel()
-		<-pumpDone
+		err = <-pumpDone
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 }
 
@@ -174,7 +178,10 @@ func TestPump_IdleHeartbeat_LockStolenThenReAcquired(t *testing.T) {
 		}, 3*time.Second, 100*time.Millisecond)
 
 		pumpCancel()
-		<-pumpDone
+		err = <-pumpDone
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 }
 
@@ -223,7 +230,10 @@ func TestPump_IdleHeartbeat_IdleThenEventProcessed(t *testing.T) {
 		assert.Equal(t, PumpStateWatching, pump.State())
 
 		pumpCancel()
-		<-pumpDone
+		err = <-pumpDone
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 }
 
@@ -262,6 +272,9 @@ func TestPump_IdleHeartbeat_ProactiveHeartbeatAtTTL09(t *testing.T) {
 		assert.NotNil(t, lock)
 
 		pumpCancel()
-		<-pumpDone
+		err = <-pumpDone
+		if err != nil && !errors.Is(err, context.Canceled) {
+			t.Fatalf("unexpected error: %v", err)
+		}
 	})
 }
